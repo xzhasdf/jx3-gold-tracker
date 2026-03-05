@@ -6,7 +6,7 @@
       </n-dialog-provider>
     </n-message-provider>
   </n-config-provider>
-  <div class="app-watermark">夏天の记账小工具</div>
+  <div class="app-watermark">夏天の记账小工具 —— by 遗忘的夏天@梦江南</div>
 </template>
 
 <script setup lang="ts">
@@ -22,7 +22,7 @@ import HomeView from './views/HomeView.vue'
   z-index: 999;
   pointer-events: none;
   color: rgba(0, 0, 0, 0.35);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1;
   user-select: none;
 }
