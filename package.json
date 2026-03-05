@@ -1,7 +1,7 @@
 {
   "name": "jx3-gold-tracker",
   "private": true,
-  "version": "1.0.5",
+  "version": "1.0.6",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -15,7 +15,6 @@
   "dependencies": {
     "echarts": "^6.0.0",
     "naive-ui": "^2.39.0",
-    "tesseract.js": "^7.0.0",
     "vue": "^3.5.13"
   },
   "devDependencies": {
@@ -34,10 +33,13 @@
     "appId": "com.xiatian.jx3.tracker",
     "productName": "夏天の记账小工具",
     "asar": true,
-    "asarUnpack": [
-      "dist/tesseract/**",
-      "dist/tesseract-core/**",
-      "dist/tessdata/**"
+    "asarUnpack": [],
+    "extraResources": [
+      {
+        "from": "python-runtime/",
+        "to": "python-runtime",
+        "filter": ["**/*"]
+      }
     ],
     "files": [
       "dist/**/*",

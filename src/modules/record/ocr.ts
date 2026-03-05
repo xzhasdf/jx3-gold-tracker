@@ -1,4 +1,3 @@
-import Tesseract from 'tesseract.js'
 import { SCHOOLS } from '../../constants/game'
 
 export interface OcrRoleMeta {
@@ -118,8 +117,8 @@ async function eraseIconsBeforeOcr(file: File | Blob): Promise<Blob | File> {
   }
 
   // 按行扫描找金色像素连续段，合并为连通 blob
-  type Blob = { x0: number; y0: number; x1: number; y1: number }
-  const blobs: Blob[] = []
+  type PixelBlob = { x0: number; y0: number; x1: number; y1: number }
+  const blobs: PixelBlob[] = []
 
   for (let y = 0; y < H; y++) {
     let start = -1
@@ -340,19 +339,22 @@ function parseTableMoneyByWordColumns(words: OcrWordBox[]): { expenseGold?: numb
   // 砖图标宽约占图像宽的 1%，远小于此阈值，不会将同列的 N 和 M 拆开；
   // UI 列间距远大于此阈值，可正常分列。
   const gapThreshold = Math.max(imageWidth * 0.05, 20)
-  // 过滤单字符 OCR 噪声（金币图标被识别成单个字符时会影响列分割）
-  // 保留："0"（有效的零支出）、多位数字、2 个及以上字符的词（角色名等）
-  // 过滤：单个非零数字或单个非数字字符 + 可选标点（图标噪声模式如 "9" "9." "9©"）
+  // PaddleOCR 会把"2砖7000"中砖图标两侧的数字拆成独立 word（"2" 和 "7000"）。
+  // 需要先排序，再过滤：单个数字若与下一个 word 的间距小于列分割阈值，保留（砖数）；
+  // 否则视为图标噪声（如金币图标被误识别成单个数字）。
   const firstLineWords = dataLineWords
-    // 先对每个词做字符级图标剥除（处理图标与数字被合并成单个词的情况）
     .map(stripIconFromWord)
-    .filter((item) => {
+    .sort((a, b) => a.x0 - b.x0)
+    .filter((item, idx, arr) => {
       const text = item.text.trim()
       if (text === '0') return true
-      if (/^\d\W*$/.test(text)) return false // 单个数字 + 可选标点 = 独立图标噪声词
+      if (/^\d\W*$/.test(text)) {
+        // 单个数字：与紧邻的下一词间距小于列阈值时视为砖数（如 "2砖7000" 中的 "2"）
+        const next = arr[idx + 1]
+        return next != null && (next.x0 - item.x1) < gapThreshold
+      }
       return /\d/.test(text) || text.length >= 2
     })
-    .sort((a, b) => a.x0 - b.x0)
   if (firstLineWords.length === 0) return {}
 
   const columns: OcrWordBox[][] = []
@@ -377,23 +379,28 @@ function parseTableMoneyByWordColumns(words: OcrWordBox[]): { expenseGold?: numb
   const columnNumbers = columnTexts.map((cell) => (cell.match(/\d+/g) ?? []).map((v) => Number(v)))
   const incomeNums = columnNumbers[columnNumbers.length - 1] ?? []
 
-  // 界面固定结构：角色 | [支出] | 底薪 | 补贴 | 个人结算
-  // income 始终取最后一列；支出列仅当检测到 5 列时才提取
-  // 3/4 列：无支出（或底薪/补贴因图标噪声被合并）
+  // 界面固定结构：角色 | [消費/支出] | 底薪 | 补贴 | 个人结算
+  // income 始终取最后一列；支出列规则见下。
   if (columns.length < 3) return {}
-  if (columns.length <= 4) {
-    return { expenseGold: 0, incomeGold: parseAmountFromNumbers(incomeNums) }
-  }
-  // 5 列：角色 | 支出 | 底薪 | 补贴 | 收入，且支出列值不应超过收入（避免把底薪误判为支出）
-  const expenseNums = columnNumbers[1] ?? []
-  const expenseVal = parseAmountFromNumbers(expenseNums)
+
   const incomeVal = parseAmountFromNumbers(incomeNums)
-  // 若"支出"列的值明显大于收入，说明列解析有误（是底薪而非支出），忽略支出
-  if (expenseVal != null && incomeVal != null && expenseVal > incomeVal) {
+  const col1Nums = columnNumbers[1] ?? []
+  const col1Val = parseAmountFromNumbers(col1Nums)
+
+  if (columns.length <= 4) {
+    // 4 列以下：col[1] 若为砖金格式（两个数字且第一个为小整数），认定为消費/支出列；
+    // 否则认为是底薪列（无支出），支出=0。
+    // 此逻辑处理 PaddleOCR 未检测到某列 0 值导致列数少于预期的情况。
+    if (col1Nums.length >= 2 && col1Nums[0] < 100 && col1Nums[1] < 10000) {
+      return { expenseGold: col1Val, incomeGold: incomeVal }
+    }
     return { expenseGold: 0, incomeGold: incomeVal }
   }
+
+  // 5 列：角色 | 消費/支出 | 底薪 | 补贴 | 个人结算
+  // 注意：消費可以合理地大于个人结算（如购买了团队消耗品），不再强制清零。
+  const expenseVal = col1Val
   // 若角色列与第一个数字列之间的间隔远大于其他列间距，说明支出为空（列被跳过）
-  // columnGaps[0] = 角色→第1数字列；其余 gaps 为数字列之间的间距
   if (columnGaps.length >= 2) {
     const otherGaps = columnGaps.slice(1)
     const avgOtherGap = otherGaps.reduce((s, v) => s + v, 0) / otherGaps.length
@@ -455,72 +462,30 @@ function detectSchoolFromText(text: string): string | undefined {
   return SCHOOLS.find((school) => text.includes(school))
 }
 
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
+}
+
 export async function recognizeImageText(
   file: File | Blob,
   onProgress?: (progress: number, status: string) => void
 ): Promise<OcrRecognizedData> {
-  // 用 window.location.href 计算绝对 URL，避免在 Electron file:// 协议下
-  // 以 "/" 开头的路径被错误解析为文件系统根目录（如 C:\tesseract\...）。
-  const base = new URL('.', window.location.href).href
-  const worker = await Tesseract.createWorker('chi_sim', 1, {
-    workerPath: `${base}tesseract/worker.min.js`,
-    corePath: `${base}tesseract-core/tesseract-core.wasm.js`,
-    langPath: `${base}tessdata`,
-    gzip: true,
-    logger: (message) => {
-      onProgress?.(message.progress, message.status)
-    }
-  })
-  try {
-    // 先擦除图标，再交给 Tesseract，避免图标被误识别为数字
-    const cleanedImage = await eraseIconsBeforeOcr(file)
-    const result = await worker.recognize(cleanedImage, { rotateAuto: true })
-    const words: OcrWordBox[] = []
-    const fromDataWords = (result.data as unknown as { words?: Array<{ text: string; bbox: { x0: number; y0: number; x1: number; y1: number }; symbols?: Array<{ text: string; bbox: { x0: number; y0: number; x1: number; y1: number } }> }> })
-      .words
-    if (Array.isArray(fromDataWords) && fromDataWords.length > 0) {
-      fromDataWords.forEach((word) => {
-        const symbols = Array.isArray(word.symbols)
-          ? word.symbols.map((s) => ({ text: s.text || '', x0: s.bbox.x0, x1: s.bbox.x1 }))
-          : undefined
-        words.push({
-          text: word.text || '',
-          x0: word.bbox.x0,
-          y0: word.bbox.y0,
-          x1: word.bbox.x1,
-          y1: word.bbox.y1,
-          symbols
-        })
-      })
-    } else {
-      const blocks = result.data.blocks ?? []
-      blocks.forEach((block) => {
-        block.paragraphs.forEach((paragraph) => {
-          paragraph.lines.forEach((line) => {
-            line.words.forEach((word) => {
-              const symbols = Array.isArray(word.symbols)
-                ? word.symbols.map((s) => ({ text: s.text || '', x0: s.bbox.x0, x1: s.bbox.x1 }))
-                : undefined
-              words.push({
-                text: word.text || '',
-                x0: word.bbox.x0,
-                y0: word.bbox.y0,
-                x1: word.bbox.x1,
-                y1: word.bbox.y1,
-                symbols
-              })
-            })
-          })
-        })
-      })
-    }
-    return {
-      text: result.data.text || '',
-      words
-    }
-  } finally {
-    await worker.terminate()
-  }
+  onProgress?.(0.1, 'preprocessing')
+  const cleanedImage = await eraseIconsBeforeOcr(file)
+
+  onProgress?.(0.4, 'recognizing')
+  const base64 = await blobToBase64(cleanedImage)
+  const result = await window.electronAPI!.recognizeImage(base64)
+  if (!result.ok) throw new Error(result.error ?? 'OCR failed')
+
+  onProgress?.(1.0, 'done')
+  const words: OcrWordBox[] = (result.words ?? []).map((w) => ({ ...w, symbols: undefined }))
+  return { text: result.text ?? '', words }
 }
 
 export function parseOcrText(recognized: OcrRecognizedData, roles: OcrRoleMeta[], dungeons: OcrDungeonMeta[]): OcrFillResult {
