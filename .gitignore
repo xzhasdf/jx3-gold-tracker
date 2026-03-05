@@ -19,6 +19,7 @@ Thumbs.db
 # IDE
 .idea/
 .vscode/
+.history/
 
 # Claude Code 本地配置
 .claude/
