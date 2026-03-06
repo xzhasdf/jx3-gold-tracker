@@ -121,7 +121,7 @@
           <n-space vertical :size="6">
             <n-space>
               <n-input v-model:value="addForm.groupBrand" :style="fieldStyle" />
-              <n-checkbox v-model:checked="addForm.blacklisted">拉黑</n-checkbox>
+              <n-checkbox v-if="addForm.groupBrand.trim()" v-model:checked="addForm.blacklisted">拉黑</n-checkbox>
             </n-space>
             <div class="blacklist-hint" :class="{ visible: showAddBlacklistedHint }">该团牌已拉黑</div>
           </n-space>
@@ -170,7 +170,7 @@
           <n-space vertical :size="6">
             <n-space>
               <n-input v-model:value="editForm.groupBrand" :style="fieldStyle" />
-              <n-checkbox v-model:checked="editForm.blacklisted">拉黑</n-checkbox>
+              <n-checkbox v-if="editForm.groupBrand.trim()" v-model:checked="editForm.blacklisted">拉黑</n-checkbox>
             </n-space>
             <div class="blacklist-hint" :class="{ visible: showEditBlacklistedHint }">该团牌已拉黑</div>
           </n-space>
@@ -417,7 +417,8 @@ watch(
   () => addForm.groupBrand,
   (value) => {
     const brand = value.trim()
-    if (brand && blacklistedBrandSet.value.has(brand)) addForm.blacklisted = true
+    if (!brand) { addForm.blacklisted = false; return }
+    if (blacklistedBrandSet.value.has(brand)) addForm.blacklisted = true
   }
 )
 
@@ -462,7 +463,8 @@ watch(
   () => editForm.groupBrand,
   (value) => {
     const brand = value.trim()
-    if (brand && blacklistedBrandSet.value.has(brand)) editForm.blacklisted = true
+    if (!brand) { editForm.blacklisted = false; return }
+    if (blacklistedBrandSet.value.has(brand)) editForm.blacklisted = true
   }
 )
 
@@ -587,7 +589,7 @@ function createRecord() {
     dungeonId: addForm.dungeonId,
     dateTs: addForm.date,
     income: adjustedIncome,
-    expense: toGold(0, addForm.expenseGold),
+    expense: selectedRole?.isProxyClear ? 0 : toGold(0, addForm.expenseGold),
     groupBrand: addForm.groupBrand,
     leaderId: addForm.leaderId,
     remark: addForm.remark,
@@ -636,10 +638,13 @@ function applyOcrResult(result: OcrFillResult) {
     } else {
       tempRoleCandidateId.value = resolvedRoleId
       tempRoleCandidateServer.value = tracker.servers[0]
-      tempRoleCandidateSchool.value =
-        result.schoolCandidate && tracker.schools.includes(result.schoolCandidate) ? result.schoolCandidate : tracker.schools[0]
+      tempRoleCandidateSchool.value = tracker.schools[0]
       addForm.roleId = resolvedRoleId
     }
+  } else {
+    // OCR 未识别到角色名，清空选择框让用户手动填写
+    addForm.roleId = null
+    tempRoleCandidateId.value = ''
   }
   if (result.dungeonId) addForm.dungeonId = result.dungeonId
   if (typeof result.incomeGold === 'number') addForm.incomeGold = result.incomeGold

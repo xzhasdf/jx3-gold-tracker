@@ -29,7 +29,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { parseOcrText, recognizeImageText, type OcrDungeonMeta, type OcrFillResult, type OcrRoleMeta } from './ocr'
-import { processSchoolIcon } from './schoolIconMatcher'
 import exampleImageUrl from '../../assets/example.png'
 
 const props = defineProps<{
@@ -140,15 +139,11 @@ async function recognizeAndApply() {
   progress.value = 0
   status.value = ''
   try {
-    // 先检测并擦除心法图标（若存在），同时识别门派；再跑 OCR
-    const { school: schoolFromIcon, cleanedFile } = await processSchoolIcon(file.value)
-    const recognized = await recognizeImageText(cleanedFile, (nextProgress, nextStatus) => {
+    const recognized = await recognizeImageText(file.value, (nextProgress, nextStatus) => {
       progress.value = nextProgress
       status.value = nextStatus
     })
     const parsed = parseOcrText(recognized, props.roles, props.dungeons)
-    // 图标匹配优先级高于 OCR 文字匹配
-    if (schoolFromIcon) parsed.schoolCandidate = schoolFromIcon
     if (!parsed.dateTs && !parsed.roleId && !parsed.dungeonId && parsed.incomeGold == null && parsed.expenseGold == null) {
       errorMessage.value = '未识别到可回填字段，请更换清晰截图或手动录入。'
       return
