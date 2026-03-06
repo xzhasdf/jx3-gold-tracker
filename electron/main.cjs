@@ -16,9 +16,17 @@ class PythonOcrManager {
     this._proc = null
     this._ready = false
     this._pending = new Map()   // id → { resolve, reject, timer }
+    this._readyWaiters = []     // waitReady() promise resolvers
     this._restartCount = 0
     this._maxRestarts = 3
     this._buffer = ''
+  }
+
+  waitReady() {
+    return new Promise((resolve) => {
+      if (this._ready) return resolve()
+      this._readyWaiters.push(resolve)
+    })
   }
 
   _getPythonExe() {
@@ -107,6 +115,8 @@ class PythonOcrManager {
       console.log('[OCR] Python worker ready')
       this._ready = true
       this._restartCount = 0
+      const waiters = this._readyWaiters.splice(0)
+      waiters.forEach((resolve) => resolve())
       return
     }
 
@@ -375,6 +385,7 @@ app.whenReady().then(() => {
   ipcMain.handle('app:ocr', async (_, b64) => {
     return ocrManager.recognize(b64)
   })
+  ipcMain.handle('app:waitOcrReady', () => ocrManager.waitReady())
 
   ipcMain.handle('app:getDataDir', () => ensureDataDir())
   ipcMain.handle('app:openDataDir', async () => {

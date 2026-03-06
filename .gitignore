@@ -30,6 +30,7 @@ npm-debug.log*
 
 # Python 运行时（体积大，由脚本生成）
 python-runtime/*
+!python-runtime/Lib
 !python-runtime/.gitkeep
 python-venv/*
 !python-venv/.gitkeep
