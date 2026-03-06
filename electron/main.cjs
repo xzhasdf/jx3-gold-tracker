@@ -1,175 +1,17 @@
 const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron')
 const path = require('path')
 const fs = require('fs')
-const { spawn } = require('child_process')
-const { randomUUID } = require('crypto')
 
 const isDev = !app.isPackaged
 const SETTINGS_FILE = 'settings.json'
 const STATE_FILE = 'state.json'
 let isForceQuitting = false
 
-// ─── PythonOcrManager ────────────────────────────────────────────────────────
-
-class PythonOcrManager {
-  constructor() {
-    this._proc = null
-    this._ready = false
-    this._pending = new Map()   // id → { resolve, reject, timer }
-    this._readyWaiters = []     // waitReady() promise resolvers
-    this._restartCount = 0
-    this._maxRestarts = 3
-    this._buffer = ''
-  }
-
-  waitReady() {
-    return new Promise((resolve) => {
-      if (this._ready) return resolve()
-      this._readyWaiters.push(resolve)
-    })
-  }
-
-  _getPythonExe() {
-    if (isDev && process.platform === 'darwin') {
-      return path.join(__dirname, '..', 'python-venv', 'bin', 'python3')
-    }
-    if (isDev) {
-      // Windows 开发（保留兼容）
-      return path.join(__dirname, '..', 'python-runtime', 'python.exe')
-    }
-    // Windows 生产包：相对于 exe 位置，便携 U 盘时路径也正确
-    return path.join(path.dirname(app.getPath('exe')), 'resources', 'python-runtime', 'python.exe')
-  }
-
-  _getWorkerScript() {
-    if (isDev) return path.join(__dirname, '..', 'python', 'ocr_worker.py')
-    return path.join(path.dirname(app.getPath('exe')), 'resources', 'python-runtime', 'ocr_worker.py')
-  }
-
-  start() {
-    const pythonExe = this._getPythonExe()
-    const workerScript = this._getWorkerScript()
-
-    console.log('[OCR] Starting Python worker:', pythonExe, workerScript)
-
-    try {
-      this._proc = spawn(pythonExe, ['-u', workerScript], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        windowsHide: true
-      })
-    } catch (err) {
-      console.error('[OCR] Failed to spawn Python worker:', err)
-      return
-    }
-
-    this._buffer = ''
-    this._ready = false
-
-    this._proc.stdout.on('data', (chunk) => {
-      this._buffer += chunk.toString('utf8')
-      let nl
-      while ((nl = this._buffer.indexOf('\n')) !== -1) {
-        const line = this._buffer.slice(0, nl).trim()
-        this._buffer = this._buffer.slice(nl + 1)
-        if (!line) continue
-        this._handleLine(line)
-      }
-    })
-
-    this._proc.stderr.on('data', (chunk) => {
-      console.error('[OCR stderr]', chunk.toString('utf8').trim())
-    })
-
-    this._proc.on('exit', (code, signal) => {
-      console.warn(`[OCR] Worker exited (code=${code}, signal=${signal})`)
-      this._ready = false
-      // Reject all pending requests
-      for (const [, { reject, timer }] of this._pending) {
-        clearTimeout(timer)
-        reject(new Error(`OCR worker exited (code=${code})`))
-      }
-      this._pending.clear()
-
-      if (!isForceQuitting && this._restartCount < this._maxRestarts) {
-        this._restartCount++
-        console.log(`[OCR] Restarting worker (attempt ${this._restartCount}/${this._maxRestarts})...`)
-        setTimeout(() => this.start(), 1000)
-      }
-    })
-
-    this._proc.on('error', (err) => {
-      console.error('[OCR] Worker process error:', err)
-    })
-  }
-
-  _handleLine(line) {
-    let msg
-    try {
-      msg = JSON.parse(line)
-    } catch {
-      console.warn('[OCR] Non-JSON line from worker:', line)
-      return
-    }
-
-    if (msg.ready) {
-      console.log('[OCR] Python worker ready')
-      this._ready = true
-      this._restartCount = 0
-      const waiters = this._readyWaiters.splice(0)
-      waiters.forEach((resolve) => resolve())
-      return
-    }
-
-    const id = msg.id
-    if (id && this._pending.has(id)) {
-      const { resolve, timer } = this._pending.get(id)
-      clearTimeout(timer)
-      this._pending.delete(id)
-      resolve(msg)
-    }
-  }
-
-  recognize(imageB64) {
-    return new Promise((resolve, reject) => {
-      if (!this._proc || !this._ready) {
-        return reject(new Error('OCR worker not ready'))
-      }
-      const id = randomUUID()
-      const TIMEOUT_MS = 30000
-      const timer = setTimeout(() => {
-        this._pending.delete(id)
-        reject(new Error('OCR request timed out'))
-      }, TIMEOUT_MS)
-
-      this._pending.set(id, { resolve, reject, timer })
-
-      const payload = JSON.stringify({ id, image_b64: imageB64 }) + '\n'
-      this._proc.stdin.write(payload, 'utf8')
-    })
-  }
-
-  stop() {
-    if (!this._proc) return
-    try {
-      this._proc.stdin.end()
-    } catch { /* ignore */ }
-    const proc = this._proc
-    this._proc = null
-    this._ready = false
-    setTimeout(() => {
-      try { proc.kill('SIGTERM') } catch { /* ignore */ }
-    }, 3000)
-  }
-}
-
-const ocrManager = new PythonOcrManager()
-
 // ─── App utilities ────────────────────────────────────────────────────────────
 
 function forceQuitApp() {
   if (isForceQuitting) return
   isForceQuitting = true
-  ocrManager.stop()
   BrowserWindow.getAllWindows().forEach((win) => {
     try {
       win.removeAllListeners('close')
@@ -379,14 +221,6 @@ function setupMenu() {
 }
 
 app.whenReady().then(() => {
-  // 预热 OCR worker
-  ocrManager.start()
-
-  ipcMain.handle('app:ocr', async (_, b64) => {
-    return ocrManager.recognize(b64)
-  })
-  ipcMain.handle('app:waitOcrReady', () => ocrManager.waitReady())
-
   ipcMain.handle('app:getDataDir', () => ensureDataDir())
   ipcMain.handle('app:openDataDir', async () => {
     const dir = ensureDataDir()
@@ -448,10 +282,6 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
-})
-
-app.on('before-quit', () => {
-  ocrManager.stop()
 })
 
 app.on('window-all-closed', () => {

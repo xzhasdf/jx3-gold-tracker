@@ -7,7 +7,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readStateSync: () => ipcRenderer.sendSync('app:readStateSync'),
   writeStateSync: (state) => ipcRenderer.sendSync('app:writeStateSync', state),
   exportData: (state) => ipcRenderer.invoke('app:exportData', state),
-  importData: () => ipcRenderer.invoke('app:importData'),
-  recognizeImage: (b64) => ipcRenderer.invoke('app:ocr', b64),
-  waitOcrReady: () => ipcRenderer.invoke('app:waitOcrReady')
+  importData: () => ipcRenderer.invoke('app:importData')
 })

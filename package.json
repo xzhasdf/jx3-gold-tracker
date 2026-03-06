@@ -34,15 +34,6 @@
     "productName": "夏天の记账小工具",
     "asar": true,
     "asarUnpack": [],
-    "extraResources": [
-      {
-        "from": "python-runtime/",
-        "to": "python-runtime",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ],
     "files": [
       "dist/**/*",
       "electron/**/*",

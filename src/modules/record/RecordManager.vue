@@ -77,22 +77,16 @@
   <n-modal v-model:show="showAdd" preset="card" title="新增收支记录" style="max-width: 620px">
     <n-form label-placement="left" label-width="90">
       <n-form-item label="日期">
-        <n-space align="center" :wrap-item="false">
-          <n-date-picker v-model:value="addForm.date" type="date" clearable :shortcuts="dateShortcuts" :style="fieldStyle" />
-          <n-button text type="primary" @click="showOcrModal = true">上传截图</n-button>
-        </n-space>
+        <n-date-picker v-model:value="addForm.date" type="date" clearable :shortcuts="dateShortcuts" :style="fieldStyle" />
       </n-form-item>
       <n-form-item label="角色">
-        <n-space align="center" :wrap-item="false">
-          <n-select
-            v-model:value="addForm.roleId"
-            :options="roleOptionsForAddRecordWithTemp"
-            :render-label="renderRoleOption"
-            filterable
-            :style="fieldStyle"
-          />
-          <n-button v-if="showRoleFixButton" text type="primary" @click="openRoleFixModal">识别有误？去修改</n-button>
-        </n-space>
+        <n-select
+          v-model:value="addForm.roleId"
+          :options="roleOptionsForAddRecord"
+          :render-label="renderRoleOption"
+          filterable
+          :style="fieldStyle"
+        />
       </n-form-item>
       <n-form-item label="副本">
         <n-cascader
@@ -190,39 +184,6 @@
       </n-space>
     </template>
   </n-modal>
-
-  <n-modal v-model:show="showRoleFix" preset="card" title="角色信息修正" style="max-width: 620px">
-    <n-form label-placement="left" label-width="90">
-      <n-form-item label="角色ID">
-        <n-input v-model:value="roleFixForm.id" :style="fieldStyle" />
-      </n-form-item>
-      <n-form-item label="服务器">
-        <n-select v-model:value="roleFixForm.server" :options="serverOptions" filterable :style="fieldStyle" />
-      </n-form-item>
-      <n-form-item label="门派">
-        <n-select
-          v-model:value="roleFixForm.school"
-          :options="schoolOptions"
-          :render-label="renderSchoolOption"
-          filterable
-          :style="fieldStyle"
-        />
-      </n-form-item>
-    </n-form>
-    <template #footer>
-      <n-space justify="end">
-        <n-button @click="showRoleFix = false">取消</n-button>
-        <n-button type="primary" @click="saveRoleFix">确认</n-button>
-      </n-space>
-    </template>
-  </n-modal>
-
-  <RecordOcrModal
-    v-model:show="showOcrModal"
-    :roles="ocrRoles"
-    :dungeons="ocrDungeons"
-    @apply="applyOcrResult"
-  />
 </template>
 
 <script setup lang="ts">
@@ -234,9 +195,7 @@ import { DATE_RANGE_SHORTCUTS } from '../../constants/dateShortcuts'
 import { getTodayRange, getYesterdayRange } from '../../utils/date'
 import { splitGold, toGold } from '../../utils/money'
 import MoneyValue from '../shared/MoneyValue.vue'
-import RecordOcrModal from './RecordOcrModal.vue'
 import SchoolBadge from '../shared/SchoolBadge.vue'
-import type { OcrFillResult } from './ocr'
 
 const tracker = useTracker()
 const dialog = useDialog()
@@ -250,17 +209,7 @@ const filters = reactive<{ roleId: string | null; dungeonId: string | null; rang
 
 const showAdd = ref(false)
 const showEdit = ref(false)
-const showOcrModal = ref(false)
-const showRoleFix = ref(false)
 const editingId = ref('')
-const tempRoleCandidateId = ref('')
-const tempRoleCandidateServer = ref(tracker.servers[0])
-const tempRoleCandidateSchool = ref(tracker.schools[0])
-const roleFixForm = reactive({
-  id: '',
-  server: tracker.servers[0],
-  school: tracker.schools[0]
-})
 
 const addForm = reactive({
   date: Date.now() as number | null,
@@ -288,24 +237,7 @@ const editForm = reactive({
 
 const roleOptions = computed(() => tracker.roleOptions.value)
 const roleOptionsForAddRecord = computed(() => tracker.roleOptionsForAddRecord.value)
-const serverOptions = tracker.servers.map((server) => ({ label: server, value: server }))
-const schoolOptions = tracker.schools.map((school) => ({ label: school, value: school }))
-const roleOptionsForAddRecordWithTemp = computed(() => {
-  if (!tempRoleCandidateId.value) return roleOptionsForAddRecord.value
-  const exists = tracker.roles.value.some((role) => role.id === tempRoleCandidateId.value)
-  if (exists) return roleOptionsForAddRecord.value
-  return [
-    {
-      label: `${tempRoleCandidateId.value}（${tempRoleCandidateServer.value}/${tempRoleCandidateSchool.value}）`,
-      value: tempRoleCandidateId.value
-    },
-    ...roleOptionsForAddRecord.value
-  ]
-})
 const roleMap = computed(() => new Map(tracker.roles.value.map((r) => [r.id, r])))
-const showRoleFixButton = computed(
-  () => Boolean(addForm.roleId) && addForm.roleId === tempRoleCandidateId.value && !roleMap.value.has(String(addForm.roleId))
-)
 const tempProxyRatio = ref<number | null>(null)
 const selectedAddRole = computed(() => {
   const roleId = addForm.roleId ? String(addForm.roleId) : ''
@@ -324,15 +256,6 @@ const addIncomeFeedback = computed(() => {
   if (ratio == null) return ''
   return `代清角色，工资比例${ratio}%`
 })
-const ocrRoles = computed(() => tracker.roles.value.map((role) => ({ id: role.id })))
-const ocrDungeons = computed(() =>
-  tracker.dungeons.value.map((dungeon) => ({
-    id: dungeon.id,
-    name: dungeon.name,
-    players: dungeon.players,
-    difficulty: dungeon.difficulty
-  }))
-)
 const dateRangeShortcuts = DATE_RANGE_SHORTCUTS
 const dateShortcuts = {
   昨日: () => getYesterdayRange()[0],
@@ -424,11 +347,6 @@ watch(
 
 watch(showAdd, (value) => {
   if (value) return
-  showOcrModal.value = false
-  showRoleFix.value = false
-  tempRoleCandidateId.value = ''
-  tempRoleCandidateServer.value = tracker.servers[0]
-  tempRoleCandidateSchool.value = tracker.schools[0]
   addForm.date = Date.now()
   addForm.roleId = null
   addForm.dungeonId = null
@@ -471,25 +389,12 @@ watch(
 function renderRoleOption(option: { value?: string | number; label?: string | number }) {
   const roleId = String(option.value ?? '')
   const role = roleMap.value.get(roleId)
-  if (!role) {
-    if (roleId === tempRoleCandidateId.value) {
-      return h('span', { style: 'display:inline-flex;align-items:center;gap:4px;' }, [
-        h('span', `${tempRoleCandidateId.value}（${tempRoleCandidateServer.value}/`),
-        h(SchoolBadge, { school: tempRoleCandidateSchool.value }),
-        h('span', '）')
-      ])
-    }
-    return String(option.label ?? roleId)
-  }
+  if (!role) return String(option.label ?? roleId)
   return h('span', { style: 'display:inline-flex;align-items:center;gap:4px;' }, [
     h('span', `${role.id}（${role.server}/`),
     h(SchoolBadge, { school: role.school }),
     h('span', '）')
   ])
-}
-
-function renderSchoolOption(option: { label?: string | number }) {
-  return h(SchoolBadge, { school: String(option.label ?? '') })
 }
 
 function resetFilters() {
@@ -524,9 +429,6 @@ function openAddModal() {
   addForm.leaderId = ''
   addForm.remark = ''
   addForm.blacklisted = false
-  tempRoleCandidateId.value = ''
-  tempRoleCandidateServer.value = tracker.servers[0]
-  tempRoleCandidateSchool.value = tracker.schools[0]
   showAdd.value = true
 }
 
@@ -534,51 +436,13 @@ function closeAddModal() {
   showAdd.value = false
 }
 
-function openRoleFixModal() {
-  roleFixForm.id = tempRoleCandidateId.value
-  roleFixForm.server = tempRoleCandidateServer.value
-  roleFixForm.school = tempRoleCandidateSchool.value
-  showRoleFix.value = true
-}
-
-function saveRoleFix() {
-  const nextId = roleFixForm.id.trim()
-  if (!nextId) {
-    showTip('角色ID不能为空')
-    return
-  }
-  tempRoleCandidateId.value = nextId
-  tempRoleCandidateServer.value = roleFixForm.server
-  tempRoleCandidateSchool.value = roleFixForm.school
-  addForm.roleId = nextId
-  showRoleFix.value = false
-}
-
 function createRecord() {
-  if (!addForm.date || !addForm.dungeonId) {
+  if (!addForm.date || !addForm.roleId || !addForm.dungeonId) {
     showTip('请完整填写日期、角色、副本')
     return
   }
 
-  let roleId = addForm.roleId
-  if (roleId && roleMap.value.has(roleId) === false && roleId === tempRoleCandidateId.value) {
-    const createResult = tracker.addRole({
-      id: roleId,
-      server: tempRoleCandidateServer.value,
-      school: tempRoleCandidateSchool.value,
-      isProxyClear: false,
-      wageRatio: 100
-    })
-    if (!createResult.ok) {
-      showTip(createResult.message ?? '角色创建失败')
-      return
-    }
-  }
-  if (!roleId) {
-    showTip('请完整填写日期、角色、副本')
-    return
-  }
-
+  const roleId = addForm.roleId
   const selectedRole = roleMap.value.get(roleId)
   const rawIncome = toGold(0, addForm.incomeGold)
   const proxyRatio = effectiveAddProxyRatio.value
@@ -623,35 +487,6 @@ function openTempRatioDialog() {
       tempProxyRatio.value = draft.value
     }
   })
-}
-
-function applyOcrResult(result: OcrFillResult) {
-  if (result.dateTs) addForm.date = result.dateTs
-  const resolvedRoleId = (result.roleId ?? result.roleIdCandidate ?? '')
-    .replace(/^[0-9Il|l１]+(?=[A-Za-z\u4e00-\u9fa5@])/, '')
-    .trim()
-  if (resolvedRoleId) {
-    const exists = tracker.roles.value.some((role) => role.id === resolvedRoleId)
-    if (exists) {
-      addForm.roleId = resolvedRoleId
-      tempRoleCandidateId.value = ''
-    } else {
-      tempRoleCandidateId.value = resolvedRoleId
-      tempRoleCandidateServer.value = tracker.servers[0]
-      tempRoleCandidateSchool.value = tracker.schools[0]
-      addForm.roleId = resolvedRoleId
-    }
-  } else {
-    // OCR 未识别到角色名，清空选择框让用户手动填写
-    addForm.roleId = null
-    tempRoleCandidateId.value = ''
-  }
-  if (result.dungeonId) addForm.dungeonId = result.dungeonId
-  if (typeof result.incomeGold === 'number') addForm.incomeGold = result.incomeGold
-  if (typeof result.expenseGold === 'number') addForm.expenseGold = result.expenseGold
-  if (typeof result.groupBrand === 'string') addForm.groupBrand = result.groupBrand
-  if (typeof result.leaderId === 'string') addForm.leaderId = result.leaderId
-  if (typeof result.remark === 'string') addForm.remark = result.remark
 }
 
 function openEdit(row: (typeof rows.value)[number]) {
