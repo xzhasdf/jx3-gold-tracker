@@ -69,7 +69,10 @@
         </n-card>
       </n-tab-pane>
       <n-tab-pane name="trend" tab="折线图">
-        <OverviewTrend :rows="allRows" :roles="roleMetas" :dungeons="dungeonMetas" :range="filters.range" />
+        <n-space vertical :size="16">
+          <OverviewTrend :rows="allRows" :roles="roleMetas" :dungeons="dungeonMetas" :range="filters.range" />
+          <BlackPersonTrendPage />
+        </n-space>
       </n-tab-pane>
     </n-tabs>
   </n-space>
@@ -80,8 +83,8 @@ import { computed, h, reactive } from 'vue'
 import type { DataTableColumns } from 'naive-ui'
 import { useTracker } from '../../composables/useTracker'
 import OverviewTrend from './OverviewTrend.vue'
+import BlackPersonTrendPage from './BlackPersonTrendPage.vue'
 import { DATE_RANGE_SHORTCUTS } from '../../constants/dateShortcuts'
-import { formatMoney } from '../../utils/money'
 import MoneyValue from '../shared/MoneyValue.vue'
 import SchoolBadge from '../shared/SchoolBadge.vue'
 
@@ -240,19 +243,19 @@ const columns: DataTableColumns<OverviewRow> = [
     title: '收入',
     key: 'income',
     sorter: (a, b) => a.income - b.income,
-    render: (row) => formatMoney(row.income)
+    render: (row) => h(MoneyValue, { value: row.income })
   },
   {
     title: '支出',
     key: 'expense',
     sorter: (a, b) => a.expense - b.expense,
-    render: (row) => formatMoney(row.expense)
+    render: (row) => h(MoneyValue, { value: row.expense })
   },
   {
     title: '收支小计',
     key: 'subtotal',
     sorter: (a, b) => a.subtotal - b.subtotal,
-    render: (row) => formatMoney(row.subtotal)
+    render: (row) => h(MoneyValue, { value: row.subtotal })
   }
 ]
 </script>

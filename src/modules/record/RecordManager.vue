@@ -68,7 +68,7 @@
         :columns="columns"
         :data="displayRows"
         :pagination="{ pageSize: 20 }"
-        :scroll-x="1100"
+        :scroll-x="1200"
         @update:sorter="handleSorterChange"
       />
     </n-card>
@@ -124,6 +124,9 @@
           <n-input v-model:value="addForm.leaderId" :style="fieldStyle" />
         </n-form-item>
       </template>
+      <n-form-item label="黑本人">
+        <n-input v-model:value="addForm.blackPerson" placeholder="填写黑本人" :style="fieldStyle" />
+      </n-form-item>
       <n-form-item label="备注">
         <n-input v-model:value="addForm.remark" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" :style="fieldStyle" />
       </n-form-item>
@@ -173,6 +176,9 @@
           <n-input v-model:value="editForm.leaderId" :style="fieldStyle" />
         </n-form-item>
       </template>
+      <n-form-item label="黑本人">
+        <n-input v-model:value="editForm.blackPerson" placeholder="填写黑本人" :style="fieldStyle" />
+      </n-form-item>
       <n-form-item label="备注">
         <n-input v-model:value="editForm.remark" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" :style="fieldStyle" />
       </n-form-item>
@@ -220,7 +226,8 @@ const addForm = reactive({
   groupBrand: '',
   leaderId: '',
   remark: '',
-  blacklisted: false
+  blacklisted: false,
+  blackPerson: ''
 })
 
 const editForm = reactive({
@@ -232,7 +239,8 @@ const editForm = reactive({
   groupBrand: '',
   leaderId: '',
   remark: '',
-  blacklisted: false
+  blacklisted: false,
+  blackPerson: ''
 })
 
 const roleOptions = computed(() => tracker.roleOptions.value)
@@ -356,6 +364,7 @@ watch(showAdd, (value) => {
   addForm.leaderId = ''
   addForm.remark = ''
   addForm.blacklisted = false
+  addForm.blackPerson = ''
   tempProxyRatio.value = null
 })
 
@@ -429,6 +438,7 @@ function openAddModal() {
   addForm.leaderId = ''
   addForm.remark = ''
   addForm.blacklisted = false
+  addForm.blackPerson = ''
   showAdd.value = true
 }
 
@@ -457,7 +467,8 @@ function createRecord() {
     groupBrand: addForm.groupBrand,
     leaderId: addForm.leaderId,
     remark: addForm.remark,
-    blacklisted: addForm.blacklisted
+    blacklisted: addForm.blacklisted,
+    blackPerson: addForm.blackPerson
   })
   closeAddModal()
 }
@@ -502,6 +513,7 @@ function openEdit(row: (typeof rows.value)[number]) {
   editForm.leaderId = row.leaderId || ''
   editForm.remark = row.remark || ''
   editForm.blacklisted = Boolean(row.blacklisted)
+  editForm.blackPerson = row.blackPerson || ''
   showEdit.value = true
 }
 
@@ -512,7 +524,8 @@ function saveEdit() {
     groupBrand: editForm.groupBrand,
     leaderId: editForm.leaderId,
     remark: editForm.remark,
-    blacklisted: editForm.blacklisted
+    blacklisted: editForm.blacklisted,
+    blackPerson: editForm.blackPerson
   })
   showEdit.value = false
 }
@@ -530,11 +543,13 @@ function removeRecord(id: string) {
 }
 
 const columns = computed<DataTableColumns<(typeof rows.value)[number]>>(() => [
-  { title: '日期', key: 'date', minWidth: 88, titleColSpan: 1, render: (row) => h('span', { style: 'white-space:nowrap;' }, row.date) },
+  { title: '日期', key: 'date', width: 112, fixed: 'left', ellipsis: true, titleColSpan: 1, render: (row) => h('span', { style: 'white-space:nowrap;' }, row.date) },
   {
     title: '角色信息',
     key: 'roleText',
-    minWidth: 180,
+    width: 180,
+    fixed: 'left',
+    ellipsis: true,
     render: (row) => {
       const role = roleMap.value.get(row.roleId)
       if (!role) return row.roleText
@@ -550,7 +565,7 @@ const columns = computed<DataTableColumns<(typeof rows.value)[number]>>(() => [
       ])
     }
   },
-  { title: '副本名称', key: 'dungeonText', minWidth: 180, render: (row) => h('span', { style: 'white-space:nowrap;' }, row.dungeonText) },
+  { title: '副本名称', key: 'dungeonText', width: 180, fixed: 'left', ellipsis: true, render: (row) => h('span', { style: 'white-space:nowrap;' }, row.dungeonText) },
   {
     title: '收入',
     key: 'income',
@@ -599,6 +614,12 @@ const columns = computed<DataTableColumns<(typeof rows.value)[number]>>(() => [
     key: 'remark',
     minWidth: 80,
     render: (row) => row.remark || '-'
+  },
+  {
+    title: '黑本人',
+    key: 'blackPerson',
+    minWidth: 80,
+    render: (row) => row.blackPerson || '-'
   },
   {
     title: '操作',
