@@ -26,6 +26,14 @@
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import * as echarts from 'echarts'
 import { formatMoney } from '../../utils/money'
+import iconGold from '../../assets/金币.png'
+import iconBrick from '../../assets/金砖.png'
+
+function formatMoneyHtml(value: number): string {
+  return formatMoney(value)
+    .replace(/砖/g, `<img src="${iconBrick}" style="width:13px;height:13px;vertical-align:middle;margin:0 1px;">`)
+    .replace(/金/g, `<img src="${iconGold}" style="width:13px;height:13px;vertical-align:middle;margin:0 1px;">`)
+}
 
 interface TrendRow {
   date: string
@@ -115,7 +123,7 @@ const chartOption = computed(() => ({
     formatter: (params: Array<{ axisValue: string; seriesName: string; value: number; color: string }>) => {
       if (!params.length) return ''
       const sorted = [...params].sort((a, b) => b.value - a.value)
-      const lines = sorted.map((p) => `<div style="margin-top:5px;"><span style="color:${p.color}">●</span> ${p.seriesName}: ${formatMoney(p.value)}</div>`)
+      const lines = sorted.map((p) => `<div style="margin-top:5px;"><span style="color:${p.color}">●</span> ${p.seriesName}: ${formatMoneyHtml(p.value)}</div>`)
       return `${params[0].axisValue}<div style="max-height:320px;overflow-y:auto;">${lines.join('')}</div>`
     }
   },

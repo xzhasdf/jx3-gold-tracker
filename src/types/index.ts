@@ -25,6 +25,7 @@ export interface RecordItem {
   leaderId?: string
   remark?: string
   blacklisted?: boolean
+  blackPerson?: string
 }
 
 export interface StoreState {

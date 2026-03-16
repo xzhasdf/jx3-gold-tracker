@@ -169,6 +169,7 @@ function addRecord(payload: {
   leaderId?: string
   remark?: string
   blacklisted?: boolean
+  blackPerson?: string
 }) {
   records.value.push({
     id: makeId('record'),
@@ -180,14 +181,15 @@ function addRecord(payload: {
     groupBrand: payload.groupBrand?.trim() || undefined,
     leaderId: payload.leaderId?.trim() || undefined,
     remark: payload.remark?.trim() || undefined,
-    blacklisted: Boolean(payload.blacklisted)
+    blacklisted: Boolean(payload.blacklisted),
+    blackPerson: payload.blackPerson?.trim() || undefined
   })
   persist()
 }
 
 function updateRecord(
   id: string,
-  payload: { income: number; expense: number; groupBrand?: string; leaderId?: string; remark?: string; blacklisted?: boolean }
+  payload: { income: number; expense: number; groupBrand?: string; leaderId?: string; remark?: string; blacklisted?: boolean; blackPerson?: string }
 ) {
   const target = records.value.find((r) => r.id === id)
   if (!target) return
@@ -197,6 +199,7 @@ function updateRecord(
   target.leaderId = payload.leaderId?.trim() || undefined
   target.remark = payload.remark?.trim() || undefined
   target.blacklisted = Boolean(payload.blacklisted)
+  target.blackPerson = payload.blackPerson?.trim() || undefined
   persist()
 }
 
