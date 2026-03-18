@@ -31,7 +31,9 @@ for whl in "$PIP_CACHE/win"/*.whl; do
   unzip -q -o "$whl" -d "$SITE_PKG"
 done
 
-# 5. 复制 worker 脚本
+# 5. 复制 worker 脚本和图标模板
 cp python/ocr_worker.py "$RUNTIME_DIR/ocr_worker.py"
+cp python/金币.png "$RUNTIME_DIR/金币.png"
+cp python/金砖.png "$RUNTIME_DIR/金砖.png"
 
 echo "✓ Windows 运行时就绪（$(du -sh $RUNTIME_DIR | cut -f1)），运行 npm run pack:win 打包"
