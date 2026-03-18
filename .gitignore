@@ -28,10 +28,12 @@ Thumbs.db
 *.log
 npm-debug.log*
 
-# Python 运行时（体积大，由脚本生成）
-python-runtime/*
-!python-runtime/Lib
-!python-runtime/.gitkeep
+# OCR 模型缓存（运行时自动下载）
+models/
+__pycache__/
+
+# Python 运行时（体积大，CI 中自动构建）
+python-runtime/
 python-venv/*
 !python-venv/.gitkeep
 .pip-cache/

@@ -17,6 +17,8 @@ class PythonOcrManager {
     this._ready = false
     this._pending = new Map()   // id → { resolve, reject, timer }
     this._readyWaiters = []     // waitReady() promise resolvers
+    this._statusListeners = []  // status message listeners
+    this._lastStatus = ''       // 缓存最新状态，前端连接时立即推送
     this._restartCount = 0
     this._maxRestarts = 3
     this._buffer = ''
@@ -27,6 +29,11 @@ class PythonOcrManager {
       if (this._ready) return resolve()
       this._readyWaiters.push(resolve)
     })
+  }
+
+  _broadcastStatus(status) {
+    this._lastStatus = status
+    this._statusListeners.forEach((cb) => cb(status))
   }
 
   _getPythonExe() {
@@ -46,16 +53,24 @@ class PythonOcrManager {
     return path.join(path.dirname(app.getPath('exe')), 'resources', 'python-runtime', 'ocr_worker.py')
   }
 
+  _getModelDir() {
+    if (isDev) return path.join(__dirname, '..', 'models')
+    return path.join(path.dirname(app.getPath('exe')), 'models')
+  }
+
   start() {
     const pythonExe = this._getPythonExe()
     const workerScript = this._getWorkerScript()
+    const modelDir = this._getModelDir()
 
     console.log('[OCR] Starting Python worker:', pythonExe, workerScript)
+    console.log('[OCR] Model dir:', modelDir)
 
     try {
       this._proc = spawn(pythonExe, ['-u', workerScript], {
         stdio: ['pipe', 'pipe', 'pipe'],
-        windowsHide: true
+        windowsHide: true,
+        env: { ...process.env, OCR_MODEL_DIR: modelDir }
       })
     } catch (err) {
       console.error('[OCR] Failed to spawn Python worker:', err)
@@ -77,7 +92,14 @@ class PythonOcrManager {
     })
 
     this._proc.stderr.on('data', (chunk) => {
-      console.error('[OCR stderr]', chunk.toString('utf8').trim())
+      const text = chunk.toString('utf8')
+      console.error('[OCR stderr]', text.trim())
+      // 解析 tqdm 进度: "Fetching 6 files:  83%|████"
+      const match = text.match(/Fetching \d+ files:\s+(\d+)%/)
+      if (match) {
+        const pct = parseInt(match[1], 10)
+        this._broadcastStatus(`正在下载模型... ${pct}%`)
+      }
     })
 
     this._proc.on('exit', (code, signal) => {
@@ -111,12 +133,19 @@ class PythonOcrManager {
       return
     }
 
+    if (msg.status) {
+      console.log('[OCR] Status:', msg.status)
+      this._broadcastStatus(msg.status)
+      return
+    }
+
     if (msg.ready) {
       console.log('[OCR] Python worker ready')
       this._ready = true
       this._restartCount = 0
       const waiters = this._readyWaiters.splice(0)
       waiters.forEach((resolve) => resolve())
+      this._statusListeners = []
       return
     }
 
@@ -386,6 +415,15 @@ app.whenReady().then(() => {
     return ocrManager.recognize(b64)
   })
   ipcMain.handle('app:waitOcrReady', () => ocrManager.waitReady())
+  ipcMain.on('app:onOcrStatus', (event) => {
+    // 立即推送缓存的最新状态（前端可能在下载过程中才连接）
+    if (ocrManager._lastStatus) {
+      try { event.sender.send('app:ocrStatus', ocrManager._lastStatus) } catch { /* ignore */ }
+    }
+    ocrManager._statusListeners.push((status) => {
+      try { event.sender.send('app:ocrStatus', status) } catch { /* window may be closed */ }
+    })
+  })
 
   ipcMain.handle('app:getDataDir', () => ensureDataDir())
   ipcMain.handle('app:openDataDir', async () => {

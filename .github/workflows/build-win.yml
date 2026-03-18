@@ -1,0 +1,79 @@
+name: Build Windows x64
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-win:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Prepare Python 3.11 Embedded Runtime
+        shell: pwsh
+        run: |
+          $pyVersion = "3.11.9"
+          $pyUrl = "https://www.python.org/ftp/python/$pyVersion/python-$pyVersion-embed-amd64.zip"
+          $pyDir = "python-runtime"
+
+          # 清空目录（保留 Lib/site-packages 由 pip 重建）
+          Get-ChildItem $pyDir -Exclude Lib | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          if (Test-Path "$pyDir/Lib") { Remove-Item "$pyDir/Lib" -Recurse -Force }
+
+          # 下载并解压 Python embedded
+          Write-Host "Downloading Python $pyVersion embedded..."
+          Invoke-WebRequest -Uri $pyUrl -OutFile "python-embed.zip"
+          Expand-Archive -Path "python-embed.zip" -DestinationPath $pyDir -Force
+          Remove-Item "python-embed.zip"
+
+          # 启用 site-packages（解除 ._pth 限制）
+          $pthFile = Get-ChildItem "$pyDir/python*._pth" | Select-Object -First 1
+          if ($pthFile) {
+            $content = Get-Content $pthFile.FullName
+            $content = $content -replace '#import site', 'import site'
+            Set-Content $pthFile.FullName $content
+            Write-Host "Enabled site-packages in $($pthFile.Name)"
+          }
+
+          # 安装 pip
+          Write-Host "Installing pip..."
+          Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile "get-pip.py"
+          & "$pyDir/python.exe" get-pip.py --no-warn-script-location
+          Remove-Item "get-pip.py"
+
+          # 安装 OCR 依赖
+          Write-Host "Installing PaddleOCR dependencies..."
+          & "$pyDir/python.exe" -m pip install --no-warn-script-location `
+            paddlepaddle `
+            paddleocr `
+            opencv-python-headless `
+            numpy
+
+          # 复制 worker 脚本和图标模板
+          Copy-Item "python/ocr_worker.py" "$pyDir/ocr_worker.py" -Force
+          Copy-Item "python/金币.png" "$pyDir/金币.png" -Force
+          Copy-Item "python/金砖.png" "$pyDir/金砖.png" -Force
+
+          Write-Host "Python runtime prepared successfully"
+          & "$pyDir/python.exe" -c "import paddleocr; print('PaddleOCR version:', paddleocr.__version__)"
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Build & Package
+        run: npm run pack:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-x64-installer
+          path: release/*.exe
+          if-no-files-found: error

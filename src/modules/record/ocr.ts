@@ -27,13 +27,23 @@ export interface OcrWordBox {
   y0: number
   x1: number
   y1: number
-  /** Tesseract 字符级数据，用于检测宽度异常的图标字符 */
-  symbols?: Array<{ text: string; x0: number; x1: number }>
+  confidence?: number
+}
+
+export interface OcrIconBox {
+  type: '金币' | '金砖'
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+  cx: number
+  cy: number
 }
 
 export interface OcrRecognizedData {
   text: string
   words: OcrWordBox[]
+  icons: OcrIconBox[]
 }
 
 // 表格表头关键字：出现这些词的行是列标题行，不含实际数据
@@ -51,7 +61,6 @@ function normalize(text: string) {
 function findDataLineWords(words: OcrWordBox[]): OcrWordBox[] {
   if (words.length === 0) return []
   const sorted = [...words].sort((a, b) => a.y0 - b.y0)
-  // 行分组阈值随 word 高度自适应（放大图片时 y0 坐标同比增大，固定 10px 会把同行拆开）
   const avgWordHeight = sorted.reduce((s, w) => s + (w.y1 - w.y0), 0) / sorted.length
   const lineThreshold = Math.max(10, Math.round(avgWordHeight * 0.5))
   const lines: OcrWordBox[][] = []
@@ -69,7 +78,6 @@ function findDataLineWords(words: OcrWordBox[]): OcrWordBox[] {
   }
   if (currentLine.length > 0) lines.push(currentLine)
 
-  // 跳过含表头关键字的行（用 substring 匹配，兼容 OCR 合并词）
   const dataLine = lines.find((line) => {
     const joined = line.map((w) => w.text.trim()).join('')
     if (TABLE_HEADER_KEYWORDS.some((kw) => joined.includes(kw))) return false
@@ -79,132 +87,63 @@ function findDataLineWords(words: OcrWordBox[]): OcrWordBox[] {
 }
 
 /**
- * OCR 前预处理：通过颜色检测找到金色（金币/金砖）像素区域并涂成背景色。
- * 不依赖模板文件，直接识别金/琥珀色像素（高R、中G、低B），
- * 合并为连通区域后按尺寸过滤，将图标区域填成背景色。
+ * 将图标信息与 OCR 文字按 x 坐标合并，生成带单位标注的 token 序列。
+ * 例如: [{text:"3500"}, {icon:"金币"}] 或 [{text:"2"}, {icon:"金砖"}, {text:"7000"}, {icon:"金币"}]
  */
-async function eraseIconsBeforeOcr(file: File | Blob): Promise<Blob | File> {
-  let imgBitmap: ImageBitmap
-  try {
-    imgBitmap = await createImageBitmap(file)
-  } catch {
-    return file
+type Token = { kind: 'text'; text: string; x0: number; x1: number } | { kind: 'icon'; type: string; x0: number; x1: number }
+
+function mergeWordsAndIcons(words: OcrWordBox[], icons: OcrIconBox[]): Token[] {
+  const tokens: Token[] = []
+  for (const w of words) {
+    tokens.push({ kind: 'text', text: w.text, x0: w.x0, x1: w.x1 })
   }
-  const W = imgBitmap.width
-  const H = imgBitmap.height
-  const canvas = document.createElement('canvas')
-  canvas.width = W
-  canvas.height = H
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })!
-  ctx.drawImage(imgBitmap, 0, 0)
-  imgBitmap.close()
-
-  // 取左上角 3×3 均值估算背景色
-  const cornerData = ctx.getImageData(0, 0, 3, 3).data
-  let bgR = 0, bgG = 0, bgB = 0
-  for (let i = 0; i < 9; i++) { bgR += cornerData[i * 4]; bgG += cornerData[i * 4 + 1]; bgB += cornerData[i * 4 + 2] }
-  bgR = Math.round(bgR / 9); bgG = Math.round(bgG / 9); bgB = Math.round(bgB / 9)
-
-  const { data: pixels } = ctx.getImageData(0, 0, W, H)
-
-  // 放宽的金色/琥珀色像素阈值（覆盖金币从中心到边缘的所有色阶）
-  function isGold(idx: number): boolean {
-    const r = pixels[idx], g = pixels[idx + 1], b = pixels[idx + 2]
-    return r > 120 && g > 80 && b < 140 && r - b > 55 && r > g * 0.75
+  for (const ic of icons) {
+    tokens.push({ kind: 'icon', type: ic.type, x0: ic.x0, x1: ic.x1 })
   }
+  tokens.sort((a, b) => a.x0 - b.x0)
+  return tokens
+}
 
-  // 按行扫描找金色像素连续段，合并为连通 blob
-  type PixelBlob = { x0: number; y0: number; x1: number; y1: number }
-  const blobs: PixelBlob[] = []
+/**
+ * 从 token 序列中解析金额。
+ * 模式: 数字[金砖]数字[金币] → brick*10000 + gold
+ * 或: 数字[金币] → gold
+ */
+function parseAmountFromTokens(tokens: Token[]): number | undefined {
+  let brick = 0
+  let gold = 0
+  let hasBrick = false
+  let hasGold = false
 
-  for (let y = 0; y < H; y++) {
-    let start = -1
-    const segs: Array<[number, number]> = []
-    for (let x = 0; x < W; x++) {
-      const gold = isGold((y * W + x) * 4)
-      if (gold && start < 0) start = x
-      else if (!gold && start >= 0) { segs.push([start, x - 1]); start = -1 }
-    }
-    if (start >= 0) segs.push([start, W - 1])
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i]
+    if (t.kind !== 'text') continue
+    const nums = t.text.match(/\d+/g)
+    if (!nums) continue
 
-    for (const [sx, ex] of segs) {
-      let found = -1
-      for (let bi = blobs.length - 1; bi >= 0; bi--) {
-        if (blobs[bi].y1 < y - 2) break
-        if (blobs[bi].x1 >= sx - 1 && blobs[bi].x0 <= ex + 1) { found = bi; break }
-      }
-      if (found >= 0) {
-        blobs[found].x0 = Math.min(blobs[found].x0, sx)
-        blobs[found].x1 = Math.max(blobs[found].x1, ex)
-        blobs[found].y1 = y
+    for (const numStr of nums) {
+      const num = Number(numStr)
+      // 看这个文字块后面紧跟的图标是什么类型
+      const nextIcon = tokens.find(
+        (tk) => tk.kind === 'icon' && tk.x0 >= t.x0 && tk.x0 <= t.x1 + (t.x1 - t.x0) * 1.5
+      )
+      if (nextIcon && nextIcon.kind === 'icon' && nextIcon.type === '金砖') {
+        brick += num
+        hasBrick = true
       } else {
-        blobs.push({ x0: sx, y0: y, x1: ex, y1: y })
+        gold = num
+        hasGold = true
       }
     }
   }
 
-  // 擦除金色/琥珀色图标（金砖🔶、金币💰），保护两类像素：
-  // 1. 最左侧 30% 区域（角色名列，可能含金色文字）
-  // 2. 紧靠更宽 blob 左侧的"砖数字" blob（如"1砖"中的"1"）
-  //    ——砖数字和砖图标都是金色，若全部擦除则 OCR 看不到砖数
-  const digitGapThreshold = Math.max(20, W * 0.01)
-  const eligibleBlobs = blobs
-    .filter(b => b.x1 >= W * 0.3 && (b.x1 - b.x0 + 1) >= 4 && (b.y1 - b.y0 + 1) >= 2)
-    .sort((a, b2) => a.x0 - b2.x0)
-  const preservedBlobs = new Set<PixelBlob>()
-  for (let i = 0; i + 1 < eligibleBlobs.length; i++) {
-    const left = eligibleBlobs[i]
-    const right = eligibleBlobs[i + 1]
-    const gap = right.x0 - left.x1
-    const leftW = left.x1 - left.x0 + 1
-    const rightW = right.x1 - right.x0 + 1
-    // 左 blob 宽度 < 右 blob 70%，且紧邻（< digitGapThreshold）→ 左 blob 是砖数字
-    if (gap >= 0 && gap < digitGapThreshold && leftW < rightW * 0.7) {
-      preservedBlobs.add(left)
-    }
-  }
-  console.log(`[OCR] image ${W}×${H}, W*0.3=${(W*0.3).toFixed(0)}, digitGapThresh=${digitGapThreshold.toFixed(0)}`)
-  console.log('[OCR] all blobs (x>W*0.2):', JSON.stringify(blobs.filter(b=>b.x0>W*0.2).map(b => ({ x0: b.x0, x1: b.x1, w: b.x1-b.x0+1, h: b.y1-b.y0+1 }))))
-  console.log('[OCR] preserved digit blobs:', JSON.stringify([...preservedBlobs].map(b => ({ x0: b.x0, x1: b.x1, w: b.x1 - b.x0 + 1 }))))
-
-  let anyMatch = false
-  ctx.fillStyle = `rgb(${bgR},${bgG},${bgB})`
-  for (const b of blobs) {
-    const bw = b.x1 - b.x0 + 1
-    const bh = b.y1 - b.y0 + 1
-    if (bw < 4 || bh < 2) continue
-    if (b.x1 < W * 0.3) continue        // 保护角色名列
-    if (preservedBlobs.has(b)) continue  // 保护砖数字 blob
-    ctx.fillRect(b.x0 - 1, b.y0 - 1, bw + 2, bh + 2)
-    anyMatch = true
-  }
-
-  // 矮图（单行截图通常 < 80px）在 Tesseract 识别前放大 3×，避免低分辨率下字形误判（如 "3"→"9"）
-  const UPSCALE_HEIGHT = 80
-  const upscale = H < UPSCALE_HEIGHT ? 3 : 1
-
-  if (!anyMatch && upscale === 1) return file
-
-  const outCanvas = upscale > 1 ? document.createElement('canvas') : canvas
-  if (upscale > 1) {
-    outCanvas.width = W * upscale
-    outCanvas.height = H * upscale
-    const outCtx = outCanvas.getContext('2d')!
-    outCtx.imageSmoothingEnabled = true
-    outCtx.imageSmoothingQuality = 'high'
-    outCtx.drawImage(canvas, 0, 0, W * upscale, H * upscale)
-  }
-
-  return new Promise<Blob>((resolve, reject) =>
-    outCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error('canvas.toBlob failed'))))
-  )
+  if (!hasBrick && !hasGold) return undefined
+  return brick * 10000 + gold
 }
 
 function parseAmountFromNumbers(nums: number[]): number | undefined {
   if (nums.length === 0) return undefined
   if (nums.length === 1) return nums[0]
-  // 砖+金格式：第一个数是砖数，通常极小（单次副本单人不超过百砖）
-  // 若第一个数 >= 100，说明这是两个相邻列被合并进来的，取最后一个数（即目标列的值）
   if (nums[0] < 100 && nums[1] < 10000) {
     return nums[0] * 10000 + nums[1]
   }
@@ -267,8 +206,6 @@ function levenshtein(a: string, b: string): number {
   return dp[a.length][b.length]
 }
 
-// OCR 对形似汉字（如"塘"→"壤"）容易误读，对候选角色名做模糊匹配
-// 相似度阈值 80%，但对短名字（2-4字）始终容忍 1 个字符误读
 function findRoleIdFuzzy(candidate: string, roles: OcrRoleMeta[]): string | undefined {
   const best = roles
     .map((r) => {
@@ -283,20 +220,6 @@ function findRoleIdFuzzy(candidate: string, roles: OcrRoleMeta[]): string | unde
   return best?.id
 }
 
-function parseRoleIdCandidate(text: string): string | undefined {
-  const firstLine = text
-    .split('\n')
-    .map((line) => line.trim())
-    .find((line) => line.length > 0)
-  if (!firstLine) return undefined
-
-  const matched = firstLine.match(/^(.+?)(?=\s*\d)/)
-  const raw = (matched?.[1] ?? firstLine).trim()
-  const cleaned = sanitizeRoleIdCandidate(raw)
-  if (!cleaned) return undefined
-  return cleaned.slice(0, 24)
-}
-
 function sanitizeRoleIdCandidate(raw: string): string {
   return raw
     .replace(/^[^0-9A-Za-z\u4e00-\u9fa5@]+/, '')
@@ -308,129 +231,109 @@ function sanitizeRoleIdCandidate(raw: string): string {
 
 function parseRoleIdByColumns(words: OcrWordBox[]): string | undefined {
   const dataLineWords = findDataLineWords(words).sort((a, b) => a.x0 - b.x0)
-  // 从最左词开始，跳过明显图标噪声（清洗后长度 < 2 的词），找到第一个合理角色名
   for (const word of dataLineWords) {
-    if (/^\d/.test(word.text.trim())) break // 遇到数字列说明角色名区域已过
+    if (/^\d/.test(word.text.trim())) break
     const cleaned = sanitizeRoleIdCandidate(word.text || '')
     if (cleaned.length >= 2) return cleaned
   }
   return undefined
 }
 
-/**
- * 利用 Tesseract 字符级宽度数据，将词首/词尾被误读为字符的图标剥除。
- * 图标宽度通常远大于普通数字字符宽度，以 1.3 倍最小数字宽度为阈值。
- */
-function stripIconFromWord(word: OcrWordBox): OcrWordBox {
-  const symbols = word.symbols
-  if (!symbols || symbols.length <= 1) return word
-  const digitWidths = symbols.filter((s) => /^\d$/.test(s.text)).map((s) => s.x1 - s.x0)
-  if (digitWidths.length === 0) return word
-  const minDigitWidth = Math.min(...digitWidths)
-  const threshold = minDigitWidth * 1.3
-  let start = 0
-  let end = symbols.length - 1
-  while (start < end && !/\d/.test(symbols[start].text) && symbols[start].x1 - symbols[start].x0 > threshold) start++
-  while (end > start && !/\d/.test(symbols[end].text) && symbols[end].x1 - symbols[end].x0 > threshold) end--
-  if (start === 0 && end === symbols.length - 1) return word
-  const kept = symbols.slice(start, end + 1)
-  return { ...word, text: kept.map((s) => s.text).join(''), x0: kept[0].x0, x1: kept[kept.length - 1].x1, symbols: kept }
+function parseRoleIdCandidate(text: string): string | undefined {
+  const firstLine = text
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.length > 0)
+  if (!firstLine) return undefined
+  const matched = firstLine.match(/^(.+?)(?=\s*\d)/)
+  const raw = (matched?.[1] ?? firstLine).trim()
+  const cleaned = sanitizeRoleIdCandidate(raw)
+  if (!cleaned) return undefined
+  return cleaned.slice(0, 24)
 }
 
-function parseTableMoneyByWordColumns(words: OcrWordBox[]): { expenseGold?: number; incomeGold?: number } {
-  // 跳过表头行，只处理数据行
+/**
+ * 利用图标位置信息，按列解析金额。
+ * 图标信息来自 Python 端的模板匹配，比颜色检测更可靠。
+ */
+function parseTableMoneyByColumns(words: OcrWordBox[], icons: OcrIconBox[]): { expenseGold?: number; incomeGold?: number } {
   const dataLineWords = findDataLineWords(words)
   if (dataLineWords.length === 0) return {}
 
   const imageWidth = Math.max(...words.map((item) => item.x1))
-  // 列分割阈值：取图像宽度的 5%（最小 20px）。
-  // UI 列间距远大于此值，砖数和金额间距（图标宽度）远小于此值，可正常分列。
   const gapThreshold = Math.max(imageWidth * 0.05, 20)
-  // 砖数单个数字（如"1砖1916"中的"1"）的保留阈值使用更宽松的 1.5×，
-  // 因为图标被擦除后砖数和金额之间的视觉间距会略大于图标自身宽度。
-  const brickGapThreshold = gapThreshold * 1.5
-  const firstLineWords = dataLineWords
-    .map(stripIconFromWord)
-    .sort((a, b) => a.x0 - b.x0)
-    .filter((item, idx, arr) => {
+  const sortedWords = [...dataLineWords].sort((a, b) => a.x0 - b.x0)
+    .filter((item) => {
       const text = item.text.trim()
       if (text === '0') return true
-      if (/^\d\W*$/.test(text)) {
-        // 单个数字：与紧邻的下一词间距小于砖数阈值时视为砖数（如 "2砖7000" 中的 "2"）
-        const next = arr[idx + 1]
-        return next != null && (next.x0 - item.x1) < brickGapThreshold
-      }
       return /\d/.test(text) || text.length >= 2
     })
-  if (firstLineWords.length === 0) return {}
+  if (sortedWords.length === 0) return {}
 
-  const columns: OcrWordBox[][] = []
-  const columnGaps: number[] = [] // gap[i] = distance between col[i] and col[i+1]
-  firstLineWords.forEach((word) => {
+  // 分列
+  const columns: { words: OcrWordBox[]; icons: OcrIconBox[] }[] = []
+  sortedWords.forEach((word) => {
     const prevColumn = columns[columns.length - 1]
     if (!prevColumn) {
-      columns.push([word])
+      columns.push({ words: [word], icons: [] })
       return
     }
-    const prevRight = Math.max(...prevColumn.map((item) => item.x1))
+    const prevRight = Math.max(...prevColumn.words.map((item) => item.x1))
     const gap = word.x0 - prevRight
     if (gap > gapThreshold) {
-      columnGaps.push(gap)
-      columns.push([word])
+      columns.push({ words: [word], icons: [] })
       return
     }
-    prevColumn.push(word)
+    prevColumn.words.push(word)
   })
 
-  const columnTexts = columns.map((column) => column.map((item) => item.text).join(' '))
-  const columnNumbers = columnTexts.map((cell) => (cell.match(/\d+/g) ?? []).map((v) => Number(v)))
-  console.log('[OCR] columns:', JSON.stringify(columnTexts), 'gaps:', JSON.stringify(columnGaps), 'gapThresh:', gapThreshold.toFixed(1), 'brickThresh:', brickGapThreshold.toFixed(1))
-  const incomeNums = columnNumbers[columnNumbers.length - 1] ?? []
+  // 将图标按 x 坐标分配到最近的列
+  for (const icon of icons) {
+    let bestCol = -1
+    let bestDist = Infinity
+    for (let ci = 0; ci < columns.length; ci++) {
+      const col = columns[ci]
+      const colX0 = Math.min(...col.words.map((w) => w.x0))
+      const colX1 = Math.max(...col.words.map((w) => w.x1))
+      const dist = icon.cx < colX0 ? colX0 - icon.cx : icon.cx > colX1 ? icon.cx - colX1 : 0
+      if (dist < bestDist) {
+        bestDist = dist
+        bestCol = ci
+      }
+    }
+    if (bestCol >= 0 && bestDist < gapThreshold * 2) {
+      columns[bestCol].icons.push(icon)
+    }
+  }
 
-  // 界面固定结构：角色 | [消費/支出] | 底薪 | 补贴 | 个人结算
-  // income 始终取最后一列；支出列规则见下。
+  // 解析每列金额
+  const columnAmounts = columns.map((col) => {
+    const colTokens = mergeWordsAndIcons(col.words, col.icons)
+    const byIcons = parseAmountFromTokens(colTokens)
+    if (byIcons !== undefined) return byIcons
+    // 回退：无图标信息时用纯数字解析
+    const nums = col.words.flatMap((w) => (w.text.match(/\d+/g) ?? []).map(Number))
+    return parseAmountFromNumbers(nums)
+  })
+
+  const columnTexts = columns.map((col) => col.words.map((w) => w.text).join(' '))
+  console.log('[OCR] columns:', JSON.stringify(columnTexts), 'amounts:', JSON.stringify(columnAmounts))
+
   if (columns.length < 3) return {}
 
-  const incomeVal = parseAmountFromNumbers(incomeNums)
-  const col1Nums = columnNumbers[1] ?? []
-  const col1Val = parseAmountFromNumbers(col1Nums)
+  const incomeVal = columnAmounts[columnAmounts.length - 1]
+  const firstColIsRoleName = /[^\d\s]/.test(columnTexts[0] ?? '')
 
-  if (columns.length <= 4) {
-    // 判断第一列是否含非数字字符（即角色名列）
-    const firstColIsRoleName = /[^\d\s]/.test(columnTexts[0] ?? '')
-    if (firstColIsRoleName) {
-      // 标准结构：角色 | 消費 | ... | 个人结算
-      // col[1] 若为砖金格式（两个数字且第一个为小整数），认定为消費/支出列；否则支出=0。
-      if (col1Nums.length >= 2 && col1Nums[0] < 100 && col1Nums[1] < 10000) {
-        return { expenseGold: col1Val, incomeGold: incomeVal }
-      }
-      return { expenseGold: 0, incomeGold: incomeVal }
-    } else {
-      // 角色名列未被 OCR 识别，列向左偏移：消費 | 底薪 | 补贴 | 个人结算
-      // → 支出取第一列（col[0]）
-      const col0Val = parseAmountFromNumbers(columnNumbers[0] ?? [])
-      return { expenseGold: col0Val, incomeGold: incomeVal }
-    }
-  }
-
-  // 5 列：角色 | 消費/支出 | 底薪 | 补贴 | 个人结算
-  // 注意：消費可以合理地大于个人结算（如购买了团队消耗品），不再强制清零。
-  const expenseVal = col1Val
-  // 若角色列与第一个数字列之间的间隔远大于其他列间距，说明支出为空（列被跳过）
-  if (columnGaps.length >= 2) {
-    const otherGaps = columnGaps.slice(1)
-    const avgOtherGap = otherGaps.reduce((s, v) => s + v, 0) / otherGaps.length
-    if (columnGaps[0] > avgOtherGap * 1.8) {
-      return { expenseGold: 0, incomeGold: incomeVal }
-    }
-  }
-  return {
-    expenseGold: expenseVal,
-    incomeGold: incomeVal
+  if (firstColIsRoleName) {
+    // 有角色名列时：5列=角色|消費|底薪|补贴|结算，4列及以下=角色|底薪|补贴|结算(无消費)
+    const expenseVal = columns.length >= 5 ? columnAmounts[1] : 0
+    return { expenseGold: expenseVal, incomeGold: incomeVal }
+  } else {
+    return { expenseGold: columnAmounts[0], incomeGold: incomeVal }
   }
 }
 
-function parseTableMoneyByTextFallback(text: string): { expenseGold?: number; incomeGold?: number } {
+function parseTableMoneyByTextFallback(text: string, icons: OcrIconBox[]): { expenseGold?: number; incomeGold?: number } {
   const firstLine = text
     .split('\n')
     .map((line) => line.trim())
@@ -440,18 +343,19 @@ function parseTableMoneyByTextFallback(text: string): { expenseGold?: number; in
   if (numbers.length === 0) return {}
   if (numbers.length === 1) return { expenseGold: numbers[0], incomeGold: numbers[0] }
 
+  const hasBrick = icons.some((ic) => ic.type === '金砖')
+
   let expense = numbers[0]
   if (numbers.length >= 2) {
-    if (numbers[1] < 10000 && numbers[0] < 1000) {
-      // 砖+金格式：N砖M金，M < 10000，且砖数 N 合理（单次副本不超过千砖）
+    if (hasBrick && numbers[0] < 100 && numbers[1] < 10000) {
+      expense = numbers[0] * 10000 + numbers[1]
+    } else if (numbers[1] < 10000 && numbers[0] < 1000) {
       expense = expense * 10000 + numbers[1]
     } else if (expense <= 9) {
-      // 前导小数字是噪声，取下一个数字
       expense = numbers[1]
     }
   }
 
-  // 收入取最后两个数，若符合砖+金格式（砖数 1-99，金数 < 10000）则合并
   const last = numbers[numbers.length - 1]
   const secondLast = numbers[numbers.length - 2]
   const incomeGold =
@@ -487,24 +391,26 @@ export async function recognizeImageText(
   file: File | Blob,
   onProgress?: (progress: number, status: string) => void
 ): Promise<OcrRecognizedData> {
-  onProgress?.(0.1, 'preprocessing')
-  const cleanedImage = await eraseIconsBeforeOcr(file)
+  onProgress?.(0.1, '发送识别请求')
 
-  onProgress?.(0.4, 'recognizing')
-  const base64 = await blobToBase64(cleanedImage)
+  // 直接发送原图给 Python 端，所有预处理和图标检测在 Python 端完成
+  const base64 = await blobToBase64(file)
+
+  onProgress?.(0.3, '正在识别')
   const result = await window.electronAPI!.recognizeImage(base64)
   if (!result.ok) throw new Error(result.error ?? 'OCR failed')
 
-  onProgress?.(1.0, 'done')
-  const words: OcrWordBox[] = (result.words ?? []).map((w) => ({ ...w, symbols: undefined }))
-  return { text: result.text ?? '', words }
+  onProgress?.(1.0, '完成')
+  const words: OcrWordBox[] = result.words ?? []
+  const icons: OcrIconBox[] = result.icons ?? []
+  return { text: result.text ?? '', words, icons }
 }
 
 export function parseOcrText(recognized: OcrRecognizedData, roles: OcrRoleMeta[], dungeons: OcrDungeonMeta[]): OcrFillResult {
-  // DEBUG: 打印原始 OCR words，便于排查列识别问题
-  console.log('[OCR] raw words:', JSON.stringify(recognized.words.map(w => ({ text: w.text, x0: w.x0, y0: w.y0, x1: w.x1, y1: w.y1 }))))
+  console.log('[OCR] raw words:', JSON.stringify(recognized.words.map(w => ({ text: w.text, x0: w.x0, y0: w.y0, x1: w.x1, y1: w.y1, conf: w.confidence }))))
+  console.log('[OCR] icons:', JSON.stringify(recognized.icons))
   console.log('[OCR] raw text:', JSON.stringify(recognized.text))
-  // 过滤掉表头行（如"配对象|消费|底薪|补贴|个人结算"），避免干扰文本解析
+
   const headerPattern = TABLE_HEADER_KEYWORDS.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
   const headerRegex = new RegExp(headerPattern)
   const filteredText = recognized.text
@@ -513,8 +419,11 @@ export function parseOcrText(recognized: OcrRecognizedData, roles: OcrRoleMeta[]
     .join('\n')
   const normalized = normalize(filteredText)
   const roleIdCandidate = parseRoleIdByColumns(recognized.words) ?? parseRoleIdCandidate(normalized)
-  const tableMoneyByWords = parseTableMoneyByWordColumns(recognized.words)
-  const tableMoneyByText = parseTableMoneyByTextFallback(normalized)
+
+  // 使用图标位置信息辅助金额解析
+  const tableMoneyByWords = parseTableMoneyByColumns(recognized.words, recognized.icons)
+  const tableMoneyByText = parseTableMoneyByTextFallback(normalized, recognized.icons)
+
   const incomeRaw = pickByLabel(normalized, ['收入', '收益', '进账'])
   const expenseRaw = pickByLabel(normalized, ['支出', '消耗'])
   const groupBrand = pickByLabel(normalized, ['团牌'])
@@ -524,8 +433,6 @@ export function parseOcrText(recognized: OcrRecognizedData, roles: OcrRoleMeta[]
     ? findRoleIdFuzzy(roleIdCandidate, roles) ?? findRoleId(normalized, roles)
     : findRoleId(normalized, roles)
 
-  // 当列分析方法遗漏了砖数（"1砖1916"中"1"被划入别列），文本方法的差值恰好是 N*10000 时，
-  // 优先采用文本方法的结果（砖+金合并值更完整）。
   function pickBestAmount(wordsVal: number | undefined, textVal: number | undefined): number | undefined {
     if (wordsVal === undefined) return textVal
     if (textVal === undefined) return wordsVal

@@ -11,8 +11,11 @@
     <div v-if="loading" class="app-loading">
       <div class="app-loading-box">
         <div class="app-loading-spinner" />
-        <span class="app-loading-text">正在启动 OCR 服务...</span>
-        <span class="app-loading-hint">首次启动需加载模型，可能需要数十秒，请耐心等待</span>
+        <span class="app-loading-text">{{ loadingText }}</span>
+        <div v-if="downloadPercent >= 0" class="app-loading-progress">
+          <div class="app-loading-progress-bar" :style="{ width: downloadPercent + '%' }" />
+        </div>
+        <span class="app-loading-hint">{{ isDownloading ? '首次启动需下载模型（约50MB），请确保网络畅通' : '请稍候...' }}</span>
       </div>
     </div>
   </Transition>
@@ -24,11 +27,25 @@ import { dateZhCN, zhCN } from 'naive-ui'
 import HomeView from './views/HomeView.vue'
 
 const loading = ref(!!window.electronAPI)
+const loadingText = ref('正在启动 OCR 服务...')
+const downloadPercent = ref(-1)
+const isDownloading = ref(false)
 
 onMounted(async () => {
   if (!window.electronAPI) return
-  const timeout = new Promise<void>((resolve) => setTimeout(resolve, 30000))
-  await Promise.race([window.electronAPI.waitOcrReady(), timeout])
+  window.electronAPI.onOcrStatus((status) => {
+    loadingText.value = status
+    // 解析 "正在下载模型... 83%" 格式
+    const match = status.match(/(\d+)%/)
+    if (match) {
+      downloadPercent.value = Number(match[1])
+      isDownloading.value = true
+    } else if (status.includes('下载')) {
+      isDownloading.value = true
+      downloadPercent.value = 0
+    }
+  })
+  await window.electronAPI.waitOcrReady()
   loading.value = false
 })
 </script>
@@ -50,6 +67,7 @@ onMounted(async () => {
   flex-direction: column;
   align-items: center;
   gap: 16px;
+  min-width: 280px;
 }
 
 .app-loading-spinner {
@@ -68,6 +86,21 @@ onMounted(async () => {
 .app-loading-text {
   color: #606266;
   font-size: 14px;
+}
+
+.app-loading-progress {
+  width: 100%;
+  height: 6px;
+  background: #e0e0e0;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.app-loading-progress-bar {
+  height: 100%;
+  background: #18a058;
+  border-radius: 3px;
+  transition: width 0.3s ease;
 }
 
 .app-loading-hint {
