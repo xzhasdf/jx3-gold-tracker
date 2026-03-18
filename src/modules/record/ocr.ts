@@ -402,7 +402,7 @@ export async function recognizeImageText(
 
   onProgress?.(1.0, '完成')
   const words: OcrWordBox[] = result.words ?? []
-  const icons: OcrIconBox[] = result.icons ?? []
+  const icons = (result.icons ?? []) as OcrIconBox[]
   return { text: result.text ?? '', words, icons }
 }
 
