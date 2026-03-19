@@ -41,6 +41,13 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "ocr-models/",
+        "to": "ocr-models",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "files": [

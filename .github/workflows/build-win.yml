@@ -63,6 +63,32 @@ jobs:
           Write-Host "Python runtime prepared successfully"
           & "$pyDir/python.exe" -c "import paddleocr; print('PaddleOCR version:', paddleocr.__version__)"
 
+      - name: Pre-download OCR models
+        shell: pwsh
+        run: |
+          $pyDir = "python-runtime"
+          $modelDir = "ocr-models"
+
+          New-Item -ItemType Directory -Force -Path $modelDir | Out-Null
+
+          Write-Host "Pre-downloading PaddleOCR models..."
+          & "$pyDir/python.exe" -c @"
+          import os
+          os.environ['PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK'] = 'True'
+          os.environ['PADDLE_PDX_CACHE_HOME'] = r'$modelDir'
+          from paddleocr import PaddleOCR
+          ocr = PaddleOCR(
+              lang='ch',
+              use_doc_orientation_classify=False,
+              use_doc_unwarping=False,
+              use_textline_orientation=False,
+          )
+          print('Models downloaded successfully')
+          "@
+
+          Write-Host "Model directory contents:"
+          Get-ChildItem -Recurse $modelDir | Select-Object FullName, Length
+
       - name: Install Node dependencies
         run: npm ci
 

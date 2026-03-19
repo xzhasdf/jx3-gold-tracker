@@ -55,7 +55,7 @@ class PythonOcrManager {
 
   _getModelDir() {
     if (isDev) return path.join(__dirname, '..', 'models')
-    return path.join(path.dirname(app.getPath('exe')), 'models')
+    return path.join(path.dirname(app.getPath('exe')), 'resources', 'ocr-models')
   }
 
   start() {
