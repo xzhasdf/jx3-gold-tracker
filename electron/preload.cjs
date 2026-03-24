@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   importData: () => ipcRenderer.invoke('app:importData'),
   recognizeImage: (b64) => ipcRenderer.invoke('app:ocr', b64),
   waitOcrReady: () => ipcRenderer.invoke('app:waitOcrReady'),
+  isOcrReady: () => ipcRenderer.invoke('app:isOcrReady'),
+  startOcr: () => ipcRenderer.invoke('app:startOcr'),
   onOcrStatus: (callback) => {
     ipcRenderer.send('app:onOcrStatus')
     ipcRenderer.on('app:ocrStatus', (_event, status) => callback(status))

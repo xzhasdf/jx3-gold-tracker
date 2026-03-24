@@ -18,7 +18,6 @@
       </n-form-item>
     </n-form>
     <n-divider />
-    <div class="follow-tip">关注副本后可查看角色本周CD</div>
     <n-data-table :columns="columns" :data="tableRows" :pagination="false" table-layout="fixed" :default-expand-all="true" />
   </n-card>
 
@@ -45,13 +44,15 @@
   <n-modal v-model:show="showRoster" preset="card" title="团牌名单" style="max-width: 680px">
     <n-data-table :columns="rosterColumns" :data="rosterRows" :pagination="false" />
   </n-modal>
+
 </template>
 
 <script setup lang="ts">
 import { computed, h, reactive, ref } from 'vue'
-import { NTag, type DataTableColumns, useDialog } from 'naive-ui'
+import { NPopover, NTag, type DataTableColumns, useDialog } from 'naive-ui'
 import type { Dungeon } from '../../types'
 import { useTracker } from '../../composables/useTracker'
+import SchoolBadge from '../shared/SchoolBadge.vue'
 
 interface DungeonTableRow {
   key: string
@@ -203,16 +204,33 @@ function handleDelete(row: DungeonTableRow) {
   })
 }
 
-function handleToggleFollow(row: DungeonTableRow) {
-  if (row.isGroup || !row.id) return
-  const result = tracker.toggleDungeonFollow(row.id)
-  if (!result.ok) {
-    dialog.warning({
-      title: '提示',
-      content: result.message ?? '操作失败',
-      positiveText: '知道了'
-    })
-  }
+function renderDungeonCdPopover(dungeonId: string) {
+  const cdStatus = tracker.getWeeklyCdStatusByRole()
+  const notCleared: { id: string; server: string; school: string }[] = []
+  let total = 0
+  cdStatus.forEach((role) => {
+    total++
+    const d = role.dungeons.find((item) => item.dungeonId === dungeonId)
+    if (!d?.cleared) {
+      notCleared.push({ id: role.roleId, server: role.roleServer, school: role.roleSchool })
+    }
+  })
+  if (total === 0) return h('div', { class: 'cd-popover-empty' }, '暂无角色')
+  if (notCleared.length === 0) return h('div', { class: 'cd-popover-done' }, '全部角色已通关')
+  return h('div', { class: 'cd-popover' }, [
+    h('div', { class: 'cd-popover-header' }, [
+      h('span', { class: 'cd-popover-title' }, '未通关角色'),
+      h('span', { class: 'cd-popover-count' }, `${notCleared.length} / ${total}`)
+    ]),
+    h('div', { class: 'cd-popover-list' }, notCleared.map((role) =>
+      h('div', { class: 'cd-popover-item', key: role.id }, [
+        h('span', { class: 'cd-popover-role-name' }, `${role.id}@${role.server}`),
+        h('span', { class: 'cd-popover-school' }, [
+          h(SchoolBadge, { school: role.school })
+        ])
+      ])
+    ))
+  ])
 }
 
 function getPlayerTagType() {
@@ -243,8 +261,17 @@ const columns: DataTableColumns<DungeonTableRow> = [
     title: '难度',
     key: 'difficulty',
     width: 120,
-    render: (row) =>
-      row.isGroup ? '' : h(NTag, { type: getDifficultyTagType(row.difficulty), size: 'small' }, { default: () => row.difficulty })
+    render: (row) => {
+      if (row.isGroup || !row.id) return ''
+      return h(NPopover, { trigger: 'hover', placement: 'right' }, {
+        trigger: () => h(NTag, {
+          type: getDifficultyTagType(row.difficulty),
+          size: 'small',
+          style: 'cursor: pointer;'
+        }, { default: () => row.difficulty }),
+        default: () => renderDungeonCdPopover(row.id!)
+      })
+    }
   },
   {
     title: '操作',
@@ -253,14 +280,6 @@ const columns: DataTableColumns<DungeonTableRow> = [
     render: (row) => {
       if (row.isGroup) return null
       return h('div', { class: 'action-group' }, [
-        h(
-          'button',
-          {
-            class: 'mini-btn',
-            onClick: () => handleToggleFollow(row)
-          },
-          row.followed ? '取消关注' : '关注'
-        ),
         h(
           'button',
           {
@@ -298,10 +317,3 @@ const rosterColumns: DataTableColumns<RosterRow> = [
 ]
 </script>
 
-<style scoped>
-.follow-tip {
-  font-size: 12px;
-  color: #666;
-  margin-bottom: 8px;
-}
-</style>

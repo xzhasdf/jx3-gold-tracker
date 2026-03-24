@@ -14,9 +14,6 @@
         <n-form-item>
           <n-button type="primary" @click="handleAdd">添加角色</n-button>
         </n-form-item>
-        <n-form-item>
-          <n-button @click="showWeeklyCd = true">本周CD查询</n-button>
-        </n-form-item>
       </div>
       <div class="role-form-row">
         <n-form-item :show-label="false">
@@ -76,9 +73,6 @@
     </template>
   </n-modal>
 
-  <n-modal v-model:show="showWeeklyCd" preset="card" title="本周CD查询" style="max-width: 860px">
-    <n-data-table :columns="weeklyCdColumns" :data="weeklyCdRows" :pagination="false" />
-  </n-modal>
 </template>
 
 <script setup lang="ts">
@@ -100,7 +94,6 @@ const form = reactive({
 })
 
 const showEdit = ref(false)
-const showWeeklyCd = ref(false)
 const editForm = reactive({
   oldId: '',
   id: '',
@@ -113,35 +106,6 @@ const editForm = reactive({
 const serverOptions = tracker.servers.map((v) => ({ label: v, value: v }))
 const schoolOptions = tracker.schools.map((v) => ({ label: v, value: v }))
 const roles = computed(() => tracker.roles.value)
-const roleMap = computed(() => new Map(roles.value.map((item) => [item.id, item])))
-
-interface WeeklyCdRow {
-  key: string
-  name: string
-  isRole: boolean
-  roleId?: string
-  dungeonName?: string
-  cleared?: boolean
-  progressText?: string
-  children?: WeeklyCdRow[]
-}
-
-const weeklyCdRows = computed<WeeklyCdRow[]>(() =>
-  tracker.getWeeklyCdStatusByRole().map((role) => ({
-    key: `role-${role.roleId}`,
-    name: role.roleId,
-    isRole: true,
-    roleId: role.roleId,
-    progressText: `${role.cleared}/${role.total}`,
-    children: role.dungeons.map((dungeon) => ({
-      key: `dungeon-${role.roleId}-${dungeon.dungeonId}`,
-      name: dungeon.dungeonName,
-      isRole: false,
-      dungeonName: dungeon.dungeonName,
-      cleared: dungeon.cleared
-    }))
-  }))
-)
 
 function renderSchoolOption(option: { label?: string | number }) {
   return h(SchoolBadge, { school: String(option.label ?? '') })
@@ -260,39 +224,6 @@ const columns: DataTableColumns<Role> = [
   }
 ]
 
-const weeklyCdColumns: DataTableColumns<WeeklyCdRow> = [
-  {
-    title: '角色/副本',
-    key: 'name',
-    render: (row) => {
-      if (!row.isRole || !row.roleId) return row.dungeonName
-      const role = roleMap.value.get(row.roleId)
-      if (!role) return row.roleId
-      return h('span', { style: 'display:inline-flex;align-items:center;gap:4px;' }, [
-        h('span', `${role.id}（${role.server}/`),
-        h(SchoolBadge, { school: role.school }),
-        h('span', '）')
-      ])
-    }
-  },
-  {
-    title: '本周进度',
-    key: 'progress',
-    width: 130,
-    render: (row) => (row.isRole ? row.progressText : '-')
-  },
-  {
-    title: '状态',
-    key: 'status',
-    width: 140,
-    render: (row) => {
-      if (row.isRole) return '-'
-      return row.cleared
-        ? h(NTag, { type: 'success', size: 'small' }, { default: () => '已通关' })
-        : h(NTag, { type: 'warning', size: 'small' }, { default: () => '未通关' })
-    }
-  }
-]
 </script>
 
 <style scoped>

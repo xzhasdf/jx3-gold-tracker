@@ -79,3 +79,96 @@ body {
   border-color: #d03050;
   color: #d03050;
 }
+
+/* ─── CD Popover（挂载到 body，不能用 scoped） ─── */
+
+.cd-popover {
+  max-height: 480px;
+  overflow-y: auto;
+  min-width: 200px;
+}
+
+.cd-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.cd-popover-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.cd-popover-count {
+  font-size: 11px;
+  color: #d03050;
+  background: #fef0f0;
+  padding: 1px 8px;
+  border-radius: 10px;
+}
+
+.cd-popover-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cd-popover-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  background: #fafafa;
+  transition: background 0.15s;
+}
+
+.cd-popover-item:hover {
+  background: #f0f0f0;
+}
+
+.cd-popover-role-name {
+  font-weight: 600;
+  color: #303133;
+  white-space: nowrap;
+}
+
+.cd-popover-school {
+  flex-shrink: 0;
+}
+
+.cd-popover-school .school-logo-img {
+  width: 16px;
+  height: 16px;
+}
+
+.cd-popover-school .school-logo-fallback {
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
+}
+
+.cd-popover-school .school-wrap {
+  font-size: 12px;
+  gap: 3px;
+}
+
+.cd-popover-empty {
+  padding: 8px 0;
+  color: #909399;
+  font-size: 12px;
+  text-align: center;
+}
+
+.cd-popover-done {
+  padding: 8px 0;
+  color: #18a058;
+  font-size: 12px;
+  text-align: center;
+}

@@ -18,6 +18,7 @@
             v-model:value="filters.dungeonId"
             clearable
             filterable
+            check-strategy="child"
             :options="dungeonCascaderOptions"
             placeholder="全部副本"
             :style="fieldStyle"
@@ -79,7 +80,9 @@
       <n-form-item label="日期">
         <n-space align="center" :wrap-item="false">
           <n-date-picker v-model:value="addForm.date" type="date" clearable :shortcuts="dateShortcuts" :style="fieldStyle" />
-          <n-button text type="primary" @click="showOcrModal = true">上传截图</n-button>
+          <n-button text type="primary" :disabled="!ocrReady" @click="showOcrModal = true">
+            {{ ocrReady ? '上传截图' : 'OCR未就绪' }}
+          </n-button>
         </n-space>
       </n-form-item>
       <n-form-item label="角色">
@@ -100,6 +103,7 @@
           :options="dungeonCascaderOptions"
           clearable
           filterable
+          check-strategy="child"
           placeholder="请选择人数/难度/副本"
           :style="fieldStyle"
         />
@@ -160,7 +164,7 @@
         />
       </n-form-item>
       <n-form-item label="副本">
-        <n-cascader v-model:value="editForm.dungeonId" :options="dungeonCascaderOptions" disabled :style="fieldStyle" />
+        <n-cascader v-model:value="editForm.dungeonId" :options="dungeonCascaderOptions" check-strategy="child" disabled :style="fieldStyle" />
       </n-form-item>
       <n-form-item label="收入">
         <n-input-number v-model:value="editForm.incomeGold" :min="0" :show-button="false" :style="fieldStyle" />
@@ -235,6 +239,7 @@
 import { computed, h, reactive, ref, watch } from 'vue'
 import { NSlider, NTag, type CascaderOption, type DataTableColumns, type DataTableSortState, useDialog } from 'naive-ui'
 import { useTracker } from '../../composables/useTracker'
+import { useOcrState } from '../../composables/useOcrState'
 import { FIXED_DUNGEON_OPTIONS } from '../../constants/game'
 import { DATE_RANGE_SHORTCUTS } from '../../constants/dateShortcuts'
 import { getTodayRange, getYesterdayRange } from '../../utils/date'
@@ -245,6 +250,7 @@ import SchoolBadge from '../shared/SchoolBadge.vue'
 import type { OcrFillResult } from './ocr'
 
 const tracker = useTracker()
+const { ocrReady } = useOcrState()
 const dialog = useDialog()
 const fieldStyle = { width: '340px', maxWidth: '100%' }
 

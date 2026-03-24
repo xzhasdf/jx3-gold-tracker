@@ -122,6 +122,19 @@ function deleteRole(id: string): { ok: boolean; message?: string } {
   return { ok: true }
 }
 
+function moveRole(id: string, direction: 'up' | 'down'): { ok: boolean } {
+  const idx = roles.value.findIndex((r) => r.id === id)
+  if (idx < 0) return { ok: false }
+  const targetIdx = direction === 'up' ? idx - 1 : idx + 1
+  if (targetIdx < 0 || targetIdx >= roles.value.length) return { ok: false }
+  const temp = roles.value[idx]
+  roles.value[idx] = roles.value[targetIdx]
+  roles.value[targetIdx] = temp
+  roles.value = [...roles.value]
+  persist()
+  return { ok: true }
+}
+
 function addDungeon(payload: Omit<Dungeon, 'id' | 'followed'>): { ok: boolean; message?: string } {
   const name = payload.name.trim()
   if (!name) return { ok: false, message: '副本名称不能为空' }
@@ -277,15 +290,15 @@ function getWeeklyCdStatusByRole() {
 
   const fridayResetAt = mondayResetAt + 4 * dayMs
   const tenPlayerStart = nowTs >= fridayResetAt ? fridayResetAt : mondayResetAt
-  const focusedDungeons = dungeons.value.filter((d) => d.followed)
-  const focusedIdSet = new Set(focusedDungeons.map((d) => d.id))
+  const allDungeons = dungeons.value
+  const allIdSet = new Set(allDungeons.map((d) => d.id))
   const cdStartByDungeon = new Map<string, number>(
-    focusedDungeons.map((dungeon) => [dungeon.id, dungeon.players === '10人' ? tenPlayerStart : mondayResetAt])
+    allDungeons.map((dungeon) => [dungeon.id, dungeon.players === '10人' ? tenPlayerStart : mondayResetAt])
   )
   const clearedByRole = new Map<string, Set<string>>()
 
   records.value.forEach((record) => {
-    if (!focusedIdSet.has(record.dungeonId)) return
+    if (!allIdSet.has(record.dungeonId)) return
     const ts = new Date(`${record.date}T00:00:00`).getTime()
     if (ts > todayEnd) return
     const cdStart = cdStartByDungeon.get(record.dungeonId) ?? mondayResetAt
@@ -297,7 +310,7 @@ function getWeeklyCdStatusByRole() {
 
   return roles.value.map((role) => {
     const clearedSet = clearedByRole.get(role.id) ?? new Set<string>()
-    const dungeons = focusedDungeons.map((dungeon) => ({
+    const dungeons = allDungeons.map((dungeon) => ({
       dungeonId: dungeon.id,
       dungeonName: `${dungeon.players}${dungeon.difficulty}${dungeon.name}`,
       cleared: clearedSet.has(dungeon.id)
@@ -332,6 +345,7 @@ export function useTracker() {
     addRole,
     updateRole,
     deleteRole,
+    moveRole,
     addDungeon,
     updateDungeon,
     deleteDungeon,

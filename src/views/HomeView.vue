@@ -5,13 +5,24 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.1.0</span>
+          <span class="header-version">v1.1.1</span>
         </div>
         <n-dropdown trigger="click" :options="settingOptions" @select="handleSettingSelect">
           <button class="gear-btn" type="button" aria-label="设置">⚙</button>
         </n-dropdown>
       </div>
     </n-layout-header>
+    <Transition name="ocr-bar-fade">
+      <div v-if="ocrLoading" class="ocr-top-bar">
+        <div class="ocr-top-bar-inner">
+          <span class="ocr-top-bar-text">{{ ocrLoadingText || '正在加载 OCR 模型...' }}</span>
+          <div class="ocr-top-bar-progress">
+            <div v-if="ocrDownloadPercent >= 0" class="ocr-top-bar-fill" :style="{ width: ocrDownloadPercent + '%' }" />
+            <div v-else class="ocr-top-bar-fill ocr-top-bar-indeterminate" />
+          </div>
+        </div>
+      </div>
+    </Transition>
     <n-layout-content class="content">
       <n-tabs type="line" animated default-value="overview">
         <n-tab-pane name="overview" tab="总览">
@@ -32,30 +43,49 @@
 </template>
 
 <script setup lang="ts">
+import { computed, Transition } from 'vue'
 import { type DropdownOption, useDialog, useMessage } from 'naive-ui'
 import RecordManager from '../modules/record/RecordManager.vue'
 import OverviewPage from '../modules/overview/OverviewPage.vue'
 import RoleManager from '../modules/role/RoleManager.vue'
 import DungeonManager from '../modules/dungeon/DungeonManager.vue'
 import { useTracker } from '../composables/useTracker'
+import { useOcrState } from '../composables/useOcrState'
 
 const dialog = useDialog()
 const message = useMessage()
 const tracker = useTracker()
+const { ocrReady, ocrLoading, ocrLoadingText, ocrDownloadPercent, setReady, setLoading, setLoadingStatus } = useOcrState()
 
-const settingOptions: DropdownOption[] = [
+const settingOptions = computed<DropdownOption[]>(() => [
+  ...(!ocrReady.value ? [{ label: '下载 OCR 模型', key: 'download-ocr' }] : []),
   { label: '导出数据', key: 'export-data' },
   { label: '导入数据', key: 'import-data' },
-  { type: 'divider', key: 'div1' },
+  { type: 'divider' as const, key: 'div1' },
   { label: '打开数据目录', key: 'open-data-dir' },
   { label: '修改数据路径', key: 'change-data-dir' }
-]
+])
 
 function showAppOnlyTip() {
   dialog.warning({ title: '提示', content: '当前为浏览器模式，请在 App 中使用该功能。', positiveText: '知道了' })
 }
 
 async function handleSettingSelect(key: string | number) {
+  if (key === 'download-ocr') {
+    if (!window.electronAPI) { showAppOnlyTip(); return }
+    setLoading(true)
+    setLoadingStatus('正在启动 OCR 服务...')
+    window.electronAPI.onOcrStatus((status) => {
+      setLoadingStatus(status)
+    })
+    await window.electronAPI.startOcr()
+    window.electronAPI.waitOcrReady().then(() => {
+      setReady(true)
+      message.success('OCR 模型加载完成，截图识别功能已启用')
+    })
+    return
+  }
+
   if (key === 'export-data') {
     if (!window.electronAPI) { showAppOnlyTip(); return }
     try {
@@ -155,5 +185,63 @@ async function handleSettingSelect(key: string | number) {
 
 .gear-btn:hover {
   color: #18a058;
+}
+
+.ocr-top-bar {
+  background: #fff;
+  border-bottom: 1px solid #efeff5;
+  padding: 8px 24px;
+}
+
+.ocr-top-bar-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ocr-top-bar-text {
+  font-size: 12px;
+  color: #606266;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.ocr-top-bar-progress {
+  flex: 1;
+  height: 4px;
+  background: #e0e0e0;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.ocr-top-bar-fill {
+  height: 100%;
+  background: #18a058;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.ocr-top-bar-indeterminate {
+  width: 30%;
+  animation: ocr-indeterminate 1.5s ease-in-out infinite;
+}
+
+@keyframes ocr-indeterminate {
+  0% { margin-left: 0; }
+  50% { margin-left: 70%; }
+  100% { margin-left: 0; }
+}
+
+.ocr-bar-fade-enter-active,
+.ocr-bar-fade-leave-active {
+  transition: opacity 0.3s ease, max-height 0.3s ease;
+  max-height: 40px;
+  overflow: hidden;
+}
+
+.ocr-bar-fade-enter-from,
+.ocr-bar-fade-leave-to {
+  opacity: 0;
+  max-height: 0;
 }
 </style>

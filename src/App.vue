@@ -12,10 +12,12 @@
       <div class="app-loading-box">
         <div class="app-loading-spinner" />
         <span class="app-loading-text">{{ loadingText }}</span>
-        <div v-if="downloadPercent >= 0" class="app-loading-progress">
-          <div class="app-loading-progress-bar" :style="{ width: downloadPercent + '%' }" />
+        <div v-if="downloadPercent >= 0 || isLoading" class="app-loading-progress">
+          <div v-if="downloadPercent >= 0" class="app-loading-progress-bar" :style="{ width: downloadPercent + '%' }" />
+          <div v-else class="app-loading-progress-bar app-loading-progress-indeterminate" />
         </div>
-        <span class="app-loading-hint">{{ isDownloading ? '首次启动需下载模型（约50MB），请确保网络畅通' : '请稍候...' }}</span>
+        <span class="app-loading-hint">{{ isDownloading ? '首次启动需下载模型（约50MB），请确保网络畅通' : '模型加载中，请稍候...' }}</span>
+        <button v-if="isDownloading" class="app-loading-skip" @click="skipOcr">跳过，稍后在右上角 ⚙ 中下载</button>
       </div>
     </div>
   </Transition>
@@ -25,27 +27,39 @@
 import { ref, onMounted } from 'vue'
 import { dateZhCN, zhCN } from 'naive-ui'
 import HomeView from './views/HomeView.vue'
+import { useOcrState } from './composables/useOcrState'
+
+const { setReady } = useOcrState()
 
 const loading = ref(!!window.electronAPI)
 const loadingText = ref('正在启动 OCR 服务...')
 const downloadPercent = ref(-1)
 const isDownloading = ref(false)
+const isLoading = ref(false)
+
+function skipOcr() {
+  loading.value = false
+}
 
 onMounted(async () => {
   if (!window.electronAPI) return
   window.electronAPI.onOcrStatus((status) => {
     loadingText.value = status
-    // 解析 "正在下载模型... 83%" 格式
     const match = status.match(/(\d+)%/)
     if (match) {
       downloadPercent.value = Number(match[1])
       isDownloading.value = true
+      isLoading.value = false
     } else if (status.includes('下载')) {
       isDownloading.value = true
+      isLoading.value = false
       downloadPercent.value = 0
+    } else if (status.includes('加载')) {
+      isLoading.value = true
     }
   })
   await window.electronAPI.waitOcrReady()
+  setReady(true)
   loading.value = false
 })
 </script>
@@ -103,10 +117,36 @@ onMounted(async () => {
   transition: width 0.3s ease;
 }
 
+.app-loading-progress-indeterminate {
+  width: 30% !important;
+  animation: indeterminate 1.5s ease-in-out infinite;
+}
+
+@keyframes indeterminate {
+  0% { margin-left: 0; }
+  50% { margin-left: 70%; }
+  100% { margin-left: 0; }
+}
+
 .app-loading-hint {
   color: #909399;
   font-size: 12px;
   margin-top: -4px;
+}
+
+.app-loading-skip {
+  margin-top: 4px;
+  border: none;
+  background: transparent;
+  color: #909399;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 4px 8px;
+}
+
+.app-loading-skip:hover {
+  color: #18a058;
 }
 
 .loading-fade-leave-active {

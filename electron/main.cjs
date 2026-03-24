@@ -415,6 +415,13 @@ app.whenReady().then(() => {
     return ocrManager.recognize(b64)
   })
   ipcMain.handle('app:waitOcrReady', () => ocrManager.waitReady())
+  ipcMain.handle('app:isOcrReady', () => ocrManager._ready)
+  ipcMain.handle('app:startOcr', () => {
+    if (ocrManager._ready) return { ok: true, message: 'already_ready' }
+    if (ocrManager._proc) return { ok: true, message: 'already_running' }
+    ocrManager.start()
+    return { ok: true, message: 'started' }
+  })
   ipcMain.on('app:onOcrStatus', (event) => {
     // 立即推送缓存的最新状态（前端可能在下载过程中才连接）
     if (ocrManager._lastStatus) {
