@@ -33,6 +33,9 @@
             :style="fieldStyle"
           />
         </n-form-item>
+        <n-form-item label="关键字">
+          <n-input v-model:value="filters.keyword" clearable placeholder="模糊搜索团牌/团长" :style="fieldStyle" />
+        </n-form-item>
         <n-form-item>
           <n-button @click="resetFilters">重置</n-button>
         </n-form-item>
@@ -254,10 +257,11 @@ const { ocrReady } = useOcrState()
 const dialog = useDialog()
 const fieldStyle = { width: '340px', maxWidth: '100%' }
 
-const filters = reactive<{ roleId: string | null; dungeonId: string | null; range: [number, number] | null }>({
+const filters = reactive<{ roleId: string | null; dungeonId: string | null; range: [number, number] | null; keyword: string }>({
   roleId: null,
   dungeonId: null,
-  range: tracker.getCurrentWeekRange()
+  range: tracker.getCurrentWeekRange(),
+  keyword: ''
 })
 
 const showAdd = ref(false)
@@ -511,6 +515,7 @@ function resetFilters() {
   filters.roleId = null
   filters.dungeonId = null
   filters.range = null
+  filters.keyword = ''
 }
 
 function showTip(content: string) {

@@ -253,14 +253,16 @@ function getGroupBrandRoster() {
   return result
 }
 
-function queryRecords(filters: { roleId: string | null; dungeonId: string | null; range: [number, number] | null }) {
+function queryRecords(filters: { roleId: string | null; dungeonId: string | null; range: [number, number] | null; keyword?: string }) {
   const [start, end] = filters.range ?? [Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY]
+  const kw = filters.keyword?.trim().toLowerCase() ?? ''
   return records.value
     .filter((r) => {
       const t = new Date(`${r.date}T00:00:00`).getTime()
       if (filters.roleId && r.roleId !== filters.roleId) return false
       if (filters.dungeonId && r.dungeonId !== filters.dungeonId) return false
       if (t < start || t > end) return false
+      if (kw && !(r.groupBrand ?? '').toLowerCase().includes(kw) && !(r.leaderId ?? '').toLowerCase().includes(kw)) return false
       return true
     })
     .sort((a, b) => (a.date < b.date ? 1 : -1))
