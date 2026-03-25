@@ -2,8 +2,8 @@
 CRCCheck off
 
 ; ── 安装进度 ───────────────────────────────────────────────────────────────────
-; 显示详细的文件解压进度，避免用户以为卡住了
-SetDetailsPrint textonly
+; 展开详情区域，显示每个文件的解压信息，避免用户以为卡住了
+ShowInstDetails show
 
 ; ── 升级时数据保护 ─────────────────────────────────────────────────────────────
 ; 卸载旧版前：将 settings.json 和 data\state.json 备份到 Temp 目录。
@@ -13,11 +13,10 @@ SetDetailsPrint textonly
 
 !macro customUnInstall
   ; 覆盖安装前先关闭正在运行的旧版本进程，防止文件被占用导致死循环
-  nsExec::ExecToLog 'taskkill /F /IM "$\"$INSTDIR\夏天の记账小工具.exe$\""'
-  ; 同时杀掉 Python OCR worker（可能仍在后台运行）
-  nsExec::ExecToLog 'taskkill /F /IM "python.exe" /FI "MODULES eq ocr_worker"'
+  nsExec::ExecToLog 'taskkill /F /IM "夏天の记账小工具.exe"'
+  nsExec::ExecToLog 'taskkill /F /IM "python.exe" /FI "WINDOWTITLE eq ocr_worker"'
   ; 等待进程完全退出
-  Sleep 1000
+  Sleep 1500
 
   CreateDirectory "$TEMP\jx3tracker_bak"
   ${If} ${FileExists} "$INSTDIR\settings.json"
