@@ -76,6 +76,8 @@ jobs:
           import os
           os.environ['PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK'] = 'True'
           os.environ['PADDLE_PDX_CACHE_HOME'] = r'$modelDir'
+          os.environ['HF_HOME'] = os.path.join(r'$modelDir', '.hf')
+          os.environ['HF_HUB_CACHE'] = os.path.join(r'$modelDir', '.hf', 'hub')
           from paddleocr import PaddleOCR
           ocr = PaddleOCR(
               lang='ch',

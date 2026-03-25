@@ -59,7 +59,10 @@ onMounted(async () => {
     }
   })
   await window.electronAPI.waitOcrReady()
-  setReady(true)
+  const ocrStatus = await window.electronAPI.isOcrReady()
+  // ocrStatus 可能是旧版返回的 boolean 或新版返回的 { ready, disabled }
+  const isDisabled = typeof ocrStatus === 'object' && ocrStatus.disabled
+  if (!isDisabled) setReady(true)
   loading.value = false
 })
 </script>

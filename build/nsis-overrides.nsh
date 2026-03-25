@@ -1,6 +1,10 @@
 ; Avoid false-positive NSIS integrity failures in some Windows environments.
 CRCCheck off
 
+; ── 安装进度 ───────────────────────────────────────────────────────────────────
+; 显示详细的文件解压进度，避免用户以为卡住了
+SetDetailsPrint textonly
+
 ; ── 升级时数据保护 ─────────────────────────────────────────────────────────────
 ; 卸载旧版前：将 settings.json 和 data\state.json 备份到 Temp 目录。
 ; 安装新版后：从 Temp 目录还原，再清理临时文件。
@@ -8,6 +12,13 @@ CRCCheck off
 ; 无需备份，此处只处理默认路径（安装目录根目录 / data 子目录）下的数据。
 
 !macro customUnInstall
+  ; 覆盖安装前先关闭正在运行的旧版本进程，防止文件被占用导致死循环
+  nsExec::ExecToLog 'taskkill /F /IM "$\"$INSTDIR\夏天の记账小工具.exe$\""'
+  ; 同时杀掉 Python OCR worker（可能仍在后台运行）
+  nsExec::ExecToLog 'taskkill /F /IM "python.exe" /FI "MODULES eq ocr_worker"'
+  ; 等待进程完全退出
+  Sleep 1000
+
   CreateDirectory "$TEMP\jx3tracker_bak"
   ${If} ${FileExists} "$INSTDIR\settings.json"
     CopyFiles /SILENT "$INSTDIR\settings.json" "$TEMP\jx3tracker_bak\"

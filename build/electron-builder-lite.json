@@ -1,0 +1,28 @@
+{
+  "appId": "com.xiatian.jx3.tracker",
+  "productName": "夏天の记账小工具-Lite",
+  "asar": true,
+  "asarUnpack": [],
+  "extraResources": [],
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "package.json"
+  ],
+  "directories": {
+    "output": "release"
+  },
+  "mac": {
+    "target": ["dmg"]
+  },
+  "win": {
+    "target": ["nsis"]
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "perMachine": false,
+    "allowElevation": true,
+    "include": "build/nsis-overrides.nsh"
+  }
+}

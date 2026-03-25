@@ -22,11 +22,12 @@ class PythonOcrManager {
     this._restartCount = 0
     this._maxRestarts = 3
     this._buffer = ''
+    this._disabled = false
   }
 
   waitReady() {
     return new Promise((resolve) => {
-      if (this._ready) return resolve()
+      if (this._ready || this._disabled) return resolve()
       this._readyWaiters.push(resolve)
     })
   }
@@ -58,7 +59,18 @@ class PythonOcrManager {
     return path.join(path.dirname(app.getPath('exe')), 'resources', 'ocr-models')
   }
 
+  isAvailable() {
+    const pythonExe = this._getPythonExe()
+    return fs.existsSync(pythonExe)
+  }
+
   start() {
+    if (!this.isAvailable()) {
+      console.log('[OCR] Python runtime not found, OCR disabled')
+      this._disabled = true
+      return
+    }
+
     const pythonExe = this._getPythonExe()
     const workerScript = this._getWorkerScript()
     const modelDir = this._getModelDir()
@@ -415,7 +427,7 @@ app.whenReady().then(() => {
     return ocrManager.recognize(b64)
   })
   ipcMain.handle('app:waitOcrReady', () => ocrManager.waitReady())
-  ipcMain.handle('app:isOcrReady', () => ocrManager._ready)
+  ipcMain.handle('app:isOcrReady', () => ({ ready: ocrManager._ready, disabled: ocrManager._disabled }))
   ipcMain.handle('app:startOcr', () => {
     if (ocrManager._ready) return { ok: true, message: 'already_ready' }
     if (ocrManager._proc) return { ok: true, message: 'already_running' }

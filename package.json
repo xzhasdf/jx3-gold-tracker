@@ -10,7 +10,8 @@
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
     "pack:mac": "npm run build && electron-builder --mac",
-    "pack:win": "npm run build && electron-builder --win"
+    "pack:win": "npm run build && electron-builder --win",
+    "pack:win-lite": "npm run build && electron-builder --win --config build/electron-builder-lite.json"
   },
   "dependencies": {
     "echarts": "^6.0.0",

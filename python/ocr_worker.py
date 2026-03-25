@@ -21,9 +21,11 @@ MODEL_DIR = os.environ.get('OCR_MODEL_DIR', os.path.join(os.path.dirname(os.path
 MODEL_DIR = os.path.abspath(MODEL_DIR)
 os.makedirs(MODEL_DIR, exist_ok=True)
 
-# 将 PaddleX 的模型缓存重定向到 app 目录
+# 将所有缓存重定向到 app 目录，确保不依赖用户 home 目录
 os.environ['PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK'] = 'True'
 os.environ['PADDLE_PDX_CACHE_HOME'] = MODEL_DIR
+os.environ['HF_HOME'] = os.path.join(MODEL_DIR, '.hf')
+os.environ['HF_HUB_CACHE'] = os.path.join(MODEL_DIR, '.hf', 'hub')
 
 from paddleocr import PaddleOCR
 
