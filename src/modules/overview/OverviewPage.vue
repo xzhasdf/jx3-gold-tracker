@@ -107,7 +107,7 @@ const filters = reactive<{ roleId: string | null; server: string | null; school:
   roleId: null,
   server: null,
   school: null,
-  range: tracker.getCurrentWeekRange()
+  range: null
 })
 
 const dateRangeShortcuts = DATE_RANGE_SHORTCUTS
@@ -220,7 +220,7 @@ function resetWeek() {
   filters.roleId = null
   filters.server = null
   filters.school = null
-  filters.range = tracker.getCurrentWeekRange()
+  filters.range = null
 }
 
 const columns: DataTableColumns<OverviewRow> = [

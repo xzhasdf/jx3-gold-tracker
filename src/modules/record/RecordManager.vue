@@ -155,19 +155,19 @@
   <n-modal v-model:show="showEdit" preset="card" title="编辑收支记录" style="max-width: 620px">
     <n-form label-placement="left" label-width="90">
       <n-form-item label="日期">
-        <n-date-picker v-model:value="editForm.date" type="date" disabled :style="fieldStyle" />
+        <n-date-picker v-model:value="editForm.date" type="date" clearable :shortcuts="dateShortcuts" :style="fieldStyle" />
       </n-form-item>
       <n-form-item label="角色">
         <n-select
           v-model:value="editForm.roleId"
           :options="roleOptionsForAddRecord"
           :render-label="renderRoleOption"
-          disabled
+          filterable
           :style="fieldStyle"
         />
       </n-form-item>
       <n-form-item label="副本">
-        <n-cascader v-model:value="editForm.dungeonId" :options="dungeonCascaderOptions" check-strategy="child" disabled :style="fieldStyle" />
+        <n-cascader v-model:value="editForm.dungeonId" :options="dungeonCascaderOptions" check-strategy="child" filterable :style="fieldStyle" />
       </n-form-item>
       <n-form-item label="收入">
         <n-input-number v-model:value="editForm.incomeGold" :min="0" :show-button="false" :style="fieldStyle" />

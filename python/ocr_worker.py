@@ -26,6 +26,8 @@ os.environ['PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK'] = 'True'
 os.environ['PADDLE_PDX_CACHE_HOME'] = MODEL_DIR
 os.environ['HF_HOME'] = os.path.join(MODEL_DIR, '.hf')
 os.environ['HF_HUB_CACHE'] = os.path.join(MODEL_DIR, '.hf', 'hub')
+# 禁用 OneDNN (MKL-DNN)，避免部分 CPU 上出现 ConvertPirAttribute2RuntimeAttribute 错误
+os.environ['FLAGS_use_mkldnn'] = '0'
 
 from paddleocr import PaddleOCR
 
