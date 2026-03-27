@@ -50,7 +50,7 @@
 
 <script setup lang="ts">
 import { computed, h, reactive, ref } from 'vue'
-import { NPopover, NTag, type DataTableColumns, useDialog } from 'naive-ui'
+import { NPopover, NTag, NTooltip, type DataTableColumns, useDialog } from 'naive-ui'
 import type { Dungeon } from '../../types'
 import { useTracker } from '../../composables/useTracker'
 import SchoolBadge from '../shared/SchoolBadge.vue'
@@ -266,13 +266,28 @@ const columns: DataTableColumns<DungeonTableRow> = [
     width: 120,
     render: (row) => {
       if (row.isGroup || !row.id) return ''
-      return h(NPopover, { trigger: 'hover', placement: 'right' }, {
+      console.log('[CD Debug] render tooltip for:', row.id, row.name, row.difficulty)
+      return h(NTooltip, {
+        trigger: 'hover',
+        placement: 'right',
+        raw: true,
+        style: 'padding: 0;',
+        onUpdateShow: (show: boolean) => {
+          console.log('[CD Debug] tooltip show:', show, 'dungeonId:', row.id)
+          if (show) {
+            const cdStatus = tracker.getWeeklyCdStatusByRole()
+            console.log('[CD Debug] cdStatus roles:', cdStatus.length, 'data:', JSON.stringify(cdStatus.map(r => ({ role: r.roleId, total: r.total, cleared: r.cleared }))))
+          }
+        }
+      }, {
         trigger: () => h(NTag, {
           type: getDifficultyTagType(row.difficulty),
           size: 'small',
           style: 'cursor: pointer;'
         }, { default: () => row.difficulty }),
-        default: () => renderDungeonCdPopover(row.id!)
+        default: () => h('div', { style: 'background: #fff; border-radius: 6px; box-shadow: 0 2px 12px rgba(0,0,0,0.15); padding: 12px;' },
+          [renderDungeonCdPopover(row.id!)]
+        )
       })
     }
   },
