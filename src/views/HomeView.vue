@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.2.1</span>
+          <span class="header-version">v1.2.2</span>
         </div>
         <n-dropdown trigger="click" :options="settingOptions" @select="handleSettingSelect">
           <button class="gear-btn" type="button" aria-label="设置">⚙</button>
@@ -109,6 +109,12 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.2.2',
+    items: [
+      '小工具新增「试炼翻牌占卜」，支持梅花易数和小六壬两种算法',
+    ]
+  },
   {
     version: 'v1.2.1',
     items: [
