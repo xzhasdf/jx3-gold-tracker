@@ -30,7 +30,7 @@ const roleOptionsForAddRecord = computed(() => {
   })
   return [...pinned, ...normal]
 })
-const dungeonOptions = computed(() => dungeons.value.map((d) => ({ label: `${d.players}${d.difficulty}${d.name}`, value: d.id })))
+const dungeonOptions = computed(() => dungeons.value.filter((d) => !d.hidden).map((d) => ({ label: `${d.players}${d.difficulty}${d.name}`, value: d.id })))
 
 function normalizeRole(input: Role): Role {
   return {
@@ -172,6 +172,14 @@ function toggleDungeonFollow(id: string): { ok: boolean; message?: string } {
   return { ok: true }
 }
 
+function toggleDungeonHidden(id: string): { ok: boolean; message?: string } {
+  const target = dungeons.value.find((d) => d.id === id)
+  if (!target) return { ok: false, message: '副本不存在' }
+  target.hidden = !target.hidden
+  persist()
+  return { ok: true }
+}
+
 function addRecord(payload: {
   roleId: string
   dungeonId: string
@@ -262,7 +270,7 @@ function queryRecords(filters: { roleId: string | null; dungeonId: string | null
       if (filters.roleId && r.roleId !== filters.roleId) return false
       if (filters.dungeonId && r.dungeonId !== filters.dungeonId) return false
       if (t < start || t > end) return false
-      if (kw && !(r.groupBrand ?? '').toLowerCase().includes(kw) && !(r.leaderId ?? '').toLowerCase().includes(kw)) return false
+      if (kw && !(r.groupBrand ?? '').toLowerCase().includes(kw) && !(r.leaderId ?? '').toLowerCase().includes(kw) && !(r.blackPerson ?? '').toLowerCase().includes(kw)) return false
       return true
     })
     .sort((a, b) => (a.date < b.date ? 1 : -1))
@@ -352,6 +360,7 @@ export function useTracker() {
     updateDungeon,
     deleteDungeon,
     toggleDungeonFollow,
+    toggleDungeonHidden,
     addRecord,
     updateRecord,
     deleteRecord,

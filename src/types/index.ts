@@ -12,6 +12,7 @@ export interface Dungeon {
   difficulty: '普通' | '英雄' | '挑战'
   name: string
   followed: boolean
+  hidden?: boolean
 }
 
 export interface RecordItem {

@@ -147,7 +147,7 @@ const roleMetas = computed(() =>
   tracker.roles.value.map((role) => ({ id: role.id, label: `${role.id}（${role.server}/${role.school}）` }))
 )
 
-const dungeonMetas = computed(() => tracker.dungeons.value.map((d) => ({ id: d.id, label: `${d.players}${d.difficulty}${d.name}` })))
+const dungeonMetas = computed(() => tracker.dungeons.value.filter((d) => !d.hidden).map((d) => ({ id: d.id, label: `${d.players}${d.difficulty}${d.name}` })))
 
 const summary = computed(() =>
   allRows.value.reduce(

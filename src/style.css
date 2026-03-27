@@ -80,6 +80,16 @@ body {
   color: #d03050;
 }
 
+.mini-btn.warning {
+  border-color: #f0a020;
+  color: #f0a020;
+}
+
+.mini-btn.warning:hover {
+  border-color: #d48806;
+  color: #d48806;
+}
+
 /* ─── CD Popover（挂载到 body，不能用 scoped） ─── */
 
 .cd-popover {

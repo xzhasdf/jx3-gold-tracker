@@ -18,6 +18,7 @@
       </n-form-item>
     </n-form>
     <n-divider />
+    <div style="color: #666; font-size: 12px; margin-bottom: 8px;">副本隐藏后将不会出现在所有副本选项中</div>
     <n-data-table :columns="columns" :data="tableRows" :pagination="false" table-layout="fixed" :default-expand-all="true" />
   </n-card>
 
@@ -61,6 +62,7 @@ interface DungeonTableRow {
   players?: '10人' | '25人'
   difficulty?: '普通' | '英雄' | '挑战'
   followed?: boolean
+  hidden?: boolean
   configText?: string
   isGroup: boolean
   children?: DungeonTableRow[]
@@ -115,6 +117,7 @@ const tableRows = computed<DungeonTableRow[]>(() => {
           players: dungeon.players,
           difficulty: dungeon.difficulty,
           followed: dungeon.followed,
+          hidden: dungeon.hidden,
           configText: `${dungeon.players}${dungeon.difficulty}`,
           isGroup: false
         }))
@@ -287,6 +290,14 @@ const columns: DataTableColumns<DungeonTableRow> = [
             onClick: () => openEdit(row)
           },
           '编辑'
+        ),
+        h(
+          'button',
+          {
+            class: row.hidden ? 'mini-btn' : 'mini-btn warning',
+            onClick: () => tracker.toggleDungeonHidden(row.id!)
+          },
+          row.hidden ? '显示' : '隐藏'
         ),
         h(
           'button',

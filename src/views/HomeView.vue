@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.1.5</span>
+          <span class="header-version">v1.1.6</span>
         </div>
         <n-dropdown trigger="click" :options="settingOptions" @select="handleSettingSelect">
           <button class="gear-btn" type="button" aria-label="设置">⚙</button>
@@ -43,7 +43,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, Transition } from 'vue'
+import { computed, h, ref, Transition } from 'vue'
 import { type DropdownOption, useDialog, useMessage } from 'naive-ui'
 import RecordManager from '../modules/record/RecordManager.vue'
 import OverviewPage from '../modules/overview/OverviewPage.vue'
@@ -57,14 +57,95 @@ const message = useMessage()
 const tracker = useTracker()
 const { ocrReady, ocrLoading, ocrLoadingText, ocrDownloadPercent, setReady, setLoading, setLoadingStatus } = useOcrState()
 
+const showChangelog = ref(false)
+
 const settingOptions = computed<DropdownOption[]>(() => [
   ...(!ocrReady.value ? [{ label: '下载 OCR 模型', key: 'download-ocr' }] : []),
   { label: '导出数据', key: 'export-data' },
   { label: '导入数据', key: 'import-data' },
   { type: 'divider' as const, key: 'div1' },
   { label: '打开数据目录', key: 'open-data-dir' },
-  { label: '修改数据路径', key: 'change-data-dir' }
+  { label: '修改数据路径', key: 'change-data-dir' },
+  { type: 'divider' as const, key: 'div2' },
+  { label: '更新日志', key: 'changelog' }
 ])
+
+const CHANGELOG = [
+  {
+    version: 'v1.1.6',
+    items: [
+      '副本管理新增隐藏功能，隐藏后不再出现在所有副本选项中',
+      '副本级联选择器支持鼠标悬停展开下一级',
+      '收支明细关键字查询新增黑本人搜索',
+      '新增更新日志',
+    ]
+  },
+  {
+    version: 'v1.1.5',
+    items: [
+      '编辑收支记录时解除日期/角色/副本的禁用状态',
+      '总览页默认查询所有记录（不再限定本周）',
+      '修复 PaddlePaddle OneDNN 兼容问题（部分 CPU 上 OCR 识别报错）',
+    ]
+  },
+  {
+    version: 'v1.1.4',
+    items: [
+      '修复 NSIS 安装脚本报错，安装界面显示详细解压进度',
+    ]
+  },
+  {
+    version: 'v1.1.3',
+    items: [
+      '修复非 C 盘安装时 OCR 模型加载失败（HuggingFace 缓存路径重定向）',
+      '覆盖安装前自动关闭旧版进程，解决文件占用死循环',
+      '新增 Lite 版打包（无 OCR，安装包更小）',
+      '安装界面展示详细文件解压信息',
+    ]
+  },
+  {
+    version: 'v1.1.2',
+    items: [
+      '收支明细新增关键字模糊查询（团牌/团长）',
+    ]
+  },
+  {
+    version: 'v1.1.1',
+    items: [
+      '清理无用依赖（sympy、rapidocr_onnxruntime），减小安装包约 45MB',
+    ]
+  },
+  {
+    version: 'v1.1.0',
+    items: [
+      '替换 RapidOCR 为 PaddleOCR，大幅提升中文识别准确率',
+      'OCR 模型 CI 构建时预下载打包，首次启动无需联网',
+    ]
+  },
+  {
+    version: 'v1.0.x',
+    items: [
+      '基础收支记录、角色管理、副本管理、总览统计',
+      'OCR 截图识别录入（RapidOCR / Tesseract）',
+      '黑本人记录与趋势图表',
+      '数据导入/导出、自定义数据路径',
+      '便携模式支持（U 盘运行）',
+    ]
+  },
+]
+
+function renderChangelog() {
+  return h('div', { style: 'max-height: 480px; overflow-y: auto;' },
+    CHANGELOG.map((entry) =>
+      h('div', { style: 'margin-bottom: 16px;' }, [
+        h('div', { style: 'font-weight: bold; font-size: 14px; margin-bottom: 4px;' }, entry.version),
+        h('ul', { style: 'margin: 0; padding-left: 20px; color: #606266; font-size: 13px; line-height: 1.8;' },
+          entry.items.map((item) => h('li', null, item))
+        )
+      ])
+    )
+  )
+}
 
 function showAppOnlyTip() {
   dialog.warning({ title: '提示', content: '当前为浏览器模式，请在 App 中使用该功能。', positiveText: '知道了' })
@@ -131,6 +212,16 @@ async function handleSettingSelect(key: string | number) {
 
   if (key === 'open-data-dir') {
     await window.electronAPI.openDataDir()
+    return
+  }
+
+  if (key === 'changelog') {
+    dialog.info({
+      title: '更新日志',
+      content: renderChangelog,
+      positiveText: '关闭',
+      style: 'max-width: 520px;'
+    })
     return
   }
 

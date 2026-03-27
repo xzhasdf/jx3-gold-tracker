@@ -19,6 +19,7 @@
             clearable
             filterable
             check-strategy="child"
+            expand-trigger="hover"
             :options="dungeonCascaderOptions"
             placeholder="全部副本"
             :style="fieldStyle"
@@ -34,7 +35,7 @@
           />
         </n-form-item>
         <n-form-item label="关键字">
-          <n-input v-model:value="filters.keyword" clearable placeholder="模糊搜索团牌/团长" :style="fieldStyle" />
+          <n-input v-model:value="filters.keyword" clearable placeholder="模糊搜索团牌/团长/黑本人" :style="fieldStyle" />
         </n-form-item>
         <n-form-item>
           <n-button @click="resetFilters">重置</n-button>
@@ -107,6 +108,7 @@
           clearable
           filterable
           check-strategy="child"
+          expand-trigger="hover"
           placeholder="请选择人数/难度/副本"
           :style="fieldStyle"
         />
@@ -167,7 +169,7 @@
         />
       </n-form-item>
       <n-form-item label="副本">
-        <n-cascader v-model:value="editForm.dungeonId" :options="dungeonCascaderOptions" check-strategy="child" filterable :style="fieldStyle" />
+        <n-cascader v-model:value="editForm.dungeonId" :options="dungeonCascaderOptions" check-strategy="child" filterable expand-trigger="hover" :style="fieldStyle" />
       </n-form-item>
       <n-form-item label="收入">
         <n-input-number v-model:value="editForm.incomeGold" :min="0" :show-button="false" :style="fieldStyle" />
@@ -366,7 +368,7 @@ const dungeonCascaderOptions = computed<CascaderOption[]>(() => {
   const fixed: CascaderOption[] = FIXED_DUNGEON_OPTIONS.map((d) => ({ label: d.label, value: d.id }))
 
   const playerMap = new Map<string, Map<string, { label: string; value: string }[]>>()
-  tracker.dungeons.value.forEach((dungeon) => {
+  tracker.dungeons.value.filter((d) => !d.hidden).forEach((dungeon) => {
     const difficultyMap = playerMap.get(dungeon.players) ?? new Map<string, { label: string; value: string }[]>()
     const names = difficultyMap.get(dungeon.difficulty) ?? []
     names.push({ label: dungeon.name, value: dungeon.id })

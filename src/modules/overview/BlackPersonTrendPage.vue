@@ -66,7 +66,7 @@ function resetFilters() {
 
 const dungeonSelectOptions = computed(() => {
   const fixed = FIXED_DUNGEON_OPTIONS.map((d) => ({ label: d.label, value: d.id }))
-  const user = tracker.dungeons.value.map((d) => ({
+  const user = tracker.dungeons.value.filter((d) => !d.hidden).map((d) => ({
     label: `${d.players}${d.difficulty}${d.name}`,
     value: d.id
   }))
