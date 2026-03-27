@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.1.6</span>
+          <span class="header-version">v1.2.0</span>
         </div>
         <n-dropdown trigger="click" :options="settingOptions" @select="handleSettingSelect">
           <button class="gear-btn" type="button" aria-label="设置">⚙</button>
@@ -37,25 +37,63 @@
         <n-tab-pane name="dungeons" tab="副本管理">
           <DungeonManager />
         </n-tab-pane>
+        <n-tab-pane name="tools" tab="小工具">
+          <ToolsPage />
+        </n-tab-pane>
       </n-tabs>
     </n-layout-content>
   </n-layout>
 </template>
 
 <script setup lang="ts">
-import { computed, h, ref, Transition } from 'vue'
-import { type DropdownOption, useDialog, useMessage } from 'naive-ui'
+import { computed, h, onMounted, ref, Transition } from 'vue'
+import { NCheckbox, type DropdownOption, useDialog, useMessage } from 'naive-ui'
 import RecordManager from '../modules/record/RecordManager.vue'
 import OverviewPage from '../modules/overview/OverviewPage.vue'
 import RoleManager from '../modules/role/RoleManager.vue'
 import DungeonManager from '../modules/dungeon/DungeonManager.vue'
+import ToolsPage from '../modules/tools/ToolsPage.vue'
 import { useTracker } from '../composables/useTracker'
 import { useOcrState } from '../composables/useOcrState'
+import { useWineBury } from '../composables/useWineBury'
 
 const dialog = useDialog()
 const message = useMessage()
 const tracker = useTracker()
 const { ocrReady, ocrLoading, ocrLoadingText, ocrDownloadPercent, setReady, setLoading, setLoadingStatus } = useOcrState()
+
+const wineBury = useWineBury()
+
+onMounted(() => {
+  const upcomingWines = wineBury.getUpcomingWines()
+  if (upcomingWines.length > 0 && !wineBury.isDismissed()) {
+    const roleMap = new Map(tracker.roles.value.map((r) => [r.id, r]))
+    const dismissChecked = ref(false)
+    dialog.info({
+      title: '埋酒提醒',
+      content: () => h('div', null, [
+        h('div', null, '家园藏酒即将完成，请注意：'),
+        h('ul', { style: 'margin: 8px 0 0; padding-left: 20px; line-height: 1.8;' },
+          upcomingWines.map((w) => {
+            const role = w.roleId ? roleMap.get(w.roleId) : null
+            const roleText = role ? `(${role.id}@${role.server})` : ''
+            return h('li', null, `${w.wineType}·${w.target}${roleText}`)
+          })
+        ),
+        h('div', { style: 'margin-top: 12px;' }, [
+          h(NCheckbox, {
+            checked: dismissChecked.value,
+            'onUpdate:checked': (v: boolean) => { dismissChecked.value = v }
+          }, { default: () => '本次不再提示' })
+        ])
+      ]),
+      positiveText: '我知道了',
+      onPositiveClick: () => {
+        if (dismissChecked.value) wineBury.dismiss24h()
+      }
+    })
+  }
+})
 
 const showChangelog = ref(false)
 
@@ -71,6 +109,16 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.2.0',
+    items: [
+      '新增「小工具」页签，首个工具：家园藏酒',
+      '家园藏酒：支持选择酒类、埋藏目标和角色，进度条展示藏酒进度',
+      '家园藏酒：到期前 24 小时自动弹窗提醒，支持勾选本次不再提示',
+      '统一金币/金砖图片引用方式，清理 public 冗余资源',
+      '更换应用程序图标',
+    ]
+  },
   {
     version: 'v1.1.6',
     items: [

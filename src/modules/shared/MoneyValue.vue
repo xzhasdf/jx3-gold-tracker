@@ -2,10 +2,10 @@
   <span class="money-value">
     <template v-if="isNegative">-</template>
     <template v-if="parsed.brick > 0">
-      {{ parsed.brick }}<img src="/金砖.png" class="money-icon" />
+      {{ parsed.brick }}<img :src="iconBrick" class="money-icon" />
     </template>
     <template v-if="parsed.gold > 0 || parsed.brick === 0">
-      {{ parsed.gold }}<img src="/金币.png" class="money-icon coin" />
+      {{ parsed.gold }}<img :src="iconGold" class="money-icon coin" />
     </template>
   </span>
 </template>
@@ -13,6 +13,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { splitGold } from '../../utils/money'
+import iconGold from '../../assets/金币.png'
+import iconBrick from '../../assets/金砖.png'
 
 const props = defineProps<{ value: number }>()
 
