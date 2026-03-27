@@ -197,6 +197,7 @@ function addRecord(payload: {
     roleId: payload.roleId,
     dungeonId: payload.dungeonId,
     date: toYmd(payload.dateTs),
+    createdAt: Date.now(),
     income: payload.income,
     expense: payload.expense,
     groupBrand: payload.groupBrand?.trim() || undefined,
@@ -309,10 +310,18 @@ function getWeeklyCdStatusByRole() {
 
   records.value.forEach((record) => {
     if (!allIdSet.has(record.dungeonId)) return
-    const ts = new Date(`${record.date}T00:00:00`).getTime()
-    if (ts > todayEnd) return
     const cdStart = cdStartByDungeon.get(record.dungeonId) ?? mondayResetAt
-    if (ts < cdStart) return
+    // 有精确时间戳用精确比较，历史数据回退到日期级别比较
+    if (record.createdAt) {
+      if (record.createdAt > nowTs) return
+      if (record.createdAt < cdStart) return
+    } else {
+      const recordDay = new Date(`${record.date}T00:00:00`).getTime()
+      const cdStartD = new Date(cdStart)
+      const cdStartDay = new Date(cdStartD.getFullYear(), cdStartD.getMonth(), cdStartD.getDate()).getTime()
+      if (recordDay > todayEnd) return
+      if (recordDay < cdStartDay) return
+    }
     const dungeonSet = clearedByRole.get(record.roleId) ?? new Set<string>()
     dungeonSet.add(record.dungeonId)
     clearedByRole.set(record.roleId, dungeonSet)

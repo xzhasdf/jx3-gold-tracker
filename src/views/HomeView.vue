@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.2.0</span>
+          <span class="header-version">v1.2.1</span>
         </div>
         <n-dropdown trigger="click" :options="settingOptions" @select="handleSettingSelect">
           <button class="gear-btn" type="button" aria-label="设置">⚙</button>
@@ -109,6 +109,14 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.2.1',
+    items: [
+      '修复副本 CD 判定逻辑：记录保存时刻作为通关时间，与重置时间精确比较',
+      '兼容历史数据：无精确时间戳的记录回退到日期级别比较',
+      '收支明细分页改为每页 10 条',
+    ]
+  },
   {
     version: 'v1.2.0',
     items: [

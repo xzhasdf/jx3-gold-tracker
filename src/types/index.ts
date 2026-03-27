@@ -20,6 +20,7 @@ export interface RecordItem {
   roleId: string
   dungeonId: string
   date: string
+  createdAt?: number  // 记录保存时刻的时间戳（ms），用于 CD 判定
   income: number
   expense: number
   groupBrand?: string

@@ -72,7 +72,7 @@
         remote
         :columns="columns"
         :data="displayRows"
-        :pagination="{ pageSize: 20 }"
+        :pagination="{ pageSize: 10 }"
         :scroll-x="1200"
         @update:sorter="handleSorterChange"
       />
