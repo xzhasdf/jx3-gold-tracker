@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.2.1</span>
+          <span class="header-version">v1.2.0</span>
         </div>
         <n-dropdown trigger="click" :options="settingOptions" @select="handleSettingSelect">
           <button class="gear-btn" type="button" aria-label="设置">⚙</button>
@@ -109,12 +109,6 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
-  {
-    version: 'v1.2.1',
-    items: [
-      '修复副本管理 CD 浮窗在部分环境下不显示的问题',
-    ]
-  },
   {
     version: 'v1.2.0',
     items: [

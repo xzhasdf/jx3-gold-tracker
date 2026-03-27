@@ -35,8 +35,7 @@ import {
   NTabPane,
   NTabs,
   NTag,
-  NThing,
-  NTooltip
+  NThing
 } from 'naive-ui'
 import App from './App.vue'
 import './style.css'
@@ -77,8 +76,7 @@ const naive = create({
     NTabPane,
     NTabs,
     NTag,
-    NThing,
-    NTooltip
+    NThing
   ]
 })
 
