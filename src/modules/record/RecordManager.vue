@@ -68,6 +68,18 @@
     </n-grid>
 
     <n-card>
+      <div style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
+        <n-popover trigger="click" placement="bottom-end">
+          <template #trigger>
+            <n-button text size="small" type="primary">列排序</n-button>
+          </template>
+          <n-checkbox-group :value="visibleColumnArray" @update:value="onVisibleColumnsChange">
+            <n-space vertical :size="4">
+              <n-checkbox v-for="col in CONFIGURABLE_COLUMNS" :key="col.key" :value="col.key" :label="col.label" />
+            </n-space>
+          </n-checkbox-group>
+        </n-popover>
+      </div>
       <n-data-table
         remote
         :columns="columns"
@@ -247,7 +259,7 @@ import { useTracker } from '../../composables/useTracker'
 import { useOcrState } from '../../composables/useOcrState'
 import { FIXED_DUNGEON_OPTIONS } from '../../constants/game'
 import { DATE_RANGE_SHORTCUTS } from '../../constants/dateShortcuts'
-import { getTodayRange, getYesterdayRange } from '../../utils/date'
+import { getTodayRange, getYesterdayRange, toYmd } from '../../utils/date'
 import { splitGold, toGold } from '../../utils/money'
 import MoneyValue from '../shared/MoneyValue.vue'
 import RecordOcrModal from './RecordOcrModal.vue'
@@ -697,6 +709,9 @@ function openEdit(row: (typeof rows.value)[number]) {
 
 function saveEdit() {
   tracker.updateRecord(editingId.value, {
+    date: editForm.date ? toYmd(editForm.date) : undefined,
+    roleId: editForm.roleId || undefined,
+    dungeonId: editForm.dungeonId || undefined,
     income: toGold(0, editForm.incomeGold),
     expense: toGold(0, editForm.expenseGold),
     groupBrand: editForm.groupBrand,
@@ -720,7 +735,28 @@ function removeRecord(id: string) {
   })
 }
 
-const columns = computed<DataTableColumns<(typeof rows.value)[number]>>(() => [
+const CONFIGURABLE_COLUMNS = [
+  { key: 'date', label: '日期' },
+  { key: 'roleText', label: '角色信息' },
+  { key: 'dungeonText', label: '副本名称' },
+  { key: 'income', label: '收入' },
+  { key: 'expense', label: '支出' },
+  { key: 'subtotal', label: '收支小计' },
+  { key: 'groupBrand', label: '团牌' },
+  { key: 'leaderId', label: '团长ID' },
+  { key: 'remark', label: '备注' },
+  { key: 'blackPerson', label: '黑本人' },
+]
+const DEFAULT_VISIBLE_KEYS = CONFIGURABLE_COLUMNS.map((c) => c.key)
+const visibleColumnSet = ref<Set<string>>(new Set(tracker.columnConfig.value ?? DEFAULT_VISIBLE_KEYS))
+const visibleColumnArray = computed(() => [...visibleColumnSet.value])
+
+function onVisibleColumnsChange(keys: string[]) {
+  visibleColumnSet.value = new Set(keys)
+  tracker.setColumnConfig(keys)
+}
+
+const allColumns = computed<DataTableColumns<(typeof rows.value)[number]>>(() => [
   { title: '日期', key: 'date', width: 112, fixed: 'left', ellipsis: true, titleColSpan: 1, render: (row) => h('span', { style: 'white-space:nowrap;' }, row.date) },
   {
     title: '角色信息',
@@ -810,6 +846,13 @@ const columns = computed<DataTableColumns<(typeof rows.value)[number]>>(() => [
       ])
   }
 ])
+
+const columns = computed(() =>
+  allColumns.value.filter((col) => {
+    const key = (col as { key?: string }).key
+    return key === 'actions' || !key || visibleColumnSet.value.has(key)
+  })
+)
 
 function handleSorterChange(sorter: DataTableSortState | DataTableSortState[] | null) {
   const target = Array.isArray(sorter) ? sorter[0] : sorter

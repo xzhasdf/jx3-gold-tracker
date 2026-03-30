@@ -13,6 +13,7 @@ export interface Dungeon {
   name: string
   followed: boolean
   hidden?: boolean
+  pinned?: boolean
 }
 
 export interface RecordItem {
@@ -30,8 +31,19 @@ export interface RecordItem {
   blackPerson?: string
 }
 
+export interface WineBuryItem {
+  id: string
+  wineType: string
+  target: string
+  roleId?: string
+  startTime: number
+  endTime: number
+}
+
 export interface StoreState {
   roles: Role[]
   dungeons: Dungeon[]
   records: RecordItem[]
+  columnConfig?: string[]
+  wineBury?: WineBuryItem[]
 }

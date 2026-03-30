@@ -2,7 +2,7 @@ import { computed, ref } from 'vue'
 import { DEFAULT_DUNGEONS, DIFFICULTY_OPTIONS, FIXED_DUNGEON_LABEL, PLAYER_OPTIONS, SCHOOLS, SERVERS } from '../constants/game'
 import { loadState, saveState } from '../services/storage'
 import { getCurrentMonthRange, getCurrentWeekRange, toYmd } from '../utils/date'
-import type { Dungeon, RecordItem, Role, StoreState } from '../types'
+import type { Dungeon, RecordItem, Role, StoreState, WineBuryItem } from '../types'
 
 function makeId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -11,6 +11,8 @@ function makeId(prefix: string): string {
 const roles = ref<Role[]>([])
 const dungeons = ref<Dungeon[]>([])
 const records = ref<RecordItem[]>([])
+const columnConfig = ref<string[] | undefined>(undefined)
+const wineBury = ref<WineBuryItem[]>([])
 const newlyAddedRoleIds = ref<Set<string>>(new Set())
 
 const roleMap = computed(() => new Map(roles.value.map((r) => [r.id, r])))
@@ -50,6 +52,20 @@ function init() {
     followed: Boolean((dungeon as Partial<Dungeon>).followed)
   }))
   records.value = state.records
+  columnConfig.value = state.columnConfig
+
+  // 藏酒数据：优先从主数据读取，回退从 localStorage 迁移
+  if (state.wineBury && state.wineBury.length > 0) {
+    wineBury.value = state.wineBury
+  } else {
+    try {
+      const raw = localStorage.getItem('jx3_wine_bury')
+      if (raw) {
+        wineBury.value = JSON.parse(raw)
+        persist()  // 迁移后立即写入主数据
+      }
+    } catch { /* ignore */ }
+  }
 
   if (dungeons.value.length === 0) {
     dungeons.value = DEFAULT_DUNGEONS.map((item) => ({
@@ -64,7 +80,7 @@ function init() {
 }
 
 function persist() {
-  saveState({ roles: roles.value, dungeons: dungeons.value, records: records.value })
+  saveState({ roles: roles.value, dungeons: dungeons.value, records: records.value, columnConfig: columnConfig.value, wineBury: wineBury.value })
 }
 
 function addRole(payload: Role): { ok: boolean; message?: string } {
@@ -172,10 +188,29 @@ function toggleDungeonFollow(id: string): { ok: boolean; message?: string } {
   return { ok: true }
 }
 
-function toggleDungeonHidden(id: string): { ok: boolean; message?: string } {
-  const target = dungeons.value.find((d) => d.id === id)
-  if (!target) return { ok: false, message: '副本不存在' }
-  target.hidden = !target.hidden
+function toggleDungeonHidden(name: string): { ok: boolean; message?: string } {
+  const group = dungeons.value.filter((d) => d.name === name)
+  if (group.length === 0) return { ok: false, message: '副本不存在' }
+  const isHidden = group.every((d) => d.hidden)
+  group.forEach((d) => { d.hidden = !isHidden })
+  // 隐藏时取消置顶
+  if (!isHidden) {
+    group.forEach((d) => { d.pinned = false })
+  }
+  persist()
+  return { ok: true }
+}
+
+function toggleDungeonPinned(name: string): { ok: boolean; message?: string } {
+  const group = dungeons.value.filter((d) => d.name === name)
+  if (group.length === 0) return { ok: false, message: '副本不存在' }
+  const isPinned = group.some((d) => d.pinned)
+  // 先取消所有置顶
+  dungeons.value.forEach((d) => { d.pinned = false })
+  // 如果之前没置顶，则置顶该组
+  if (!isPinned) {
+    group.forEach((d) => { d.pinned = true })
+  }
   persist()
   return { ok: true }
 }
@@ -211,10 +246,13 @@ function addRecord(payload: {
 
 function updateRecord(
   id: string,
-  payload: { income: number; expense: number; groupBrand?: string; leaderId?: string; remark?: string; blacklisted?: boolean; blackPerson?: string }
+  payload: { date?: string; roleId?: string; dungeonId?: string; income: number; expense: number; groupBrand?: string; leaderId?: string; remark?: string; blacklisted?: boolean; blackPerson?: string }
 ) {
   const target = records.value.find((r) => r.id === id)
   if (!target) return
+  if (payload.date) target.date = payload.date
+  if (payload.roleId) target.roleId = payload.roleId
+  if (payload.dungeonId) target.dungeonId = payload.dungeonId
   target.income = payload.income
   target.expense = payload.expense
   target.groupBrand = payload.groupBrand?.trim() || undefined
@@ -230,6 +268,11 @@ function deleteRecord(id: string) {
   persist()
 }
 
+function setColumnConfig(keys: string[]) {
+  columnConfig.value = keys
+  persist()
+}
+
 function importState(state: StoreState) {
   roles.value = (Array.isArray(state.roles) ? state.roles : []).map(normalizeRole)
   dungeons.value = (Array.isArray(state.dungeons) ? state.dungeons : []).map((dungeon: Dungeon) => ({
@@ -237,6 +280,8 @@ function importState(state: StoreState) {
     followed: Boolean((dungeon as Partial<Dungeon>).followed)
   }))
   records.value = Array.isArray(state.records) ? state.records : []
+  columnConfig.value = Array.isArray(state.columnConfig) ? state.columnConfig : undefined
+  wineBury.value = Array.isArray(state.wineBury) ? state.wineBury : []
   persist()
 }
 
@@ -361,6 +406,10 @@ export function useTracker() {
     roleOptions,
     roleOptionsForAddRecord,
     dungeonOptions,
+    columnConfig,
+    setColumnConfig,
+    wineBury,
+    persist,
     addRole,
     updateRole,
     deleteRole,
@@ -370,6 +419,7 @@ export function useTracker() {
     deleteDungeon,
     toggleDungeonFollow,
     toggleDungeonHidden,
+    toggleDungeonPinned,
     addRecord,
     updateRecord,
     deleteRecord,

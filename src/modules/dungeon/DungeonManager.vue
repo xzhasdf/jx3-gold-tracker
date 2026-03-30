@@ -19,7 +19,7 @@
     </n-form>
     <n-divider />
     <div style="color: #666; font-size: 12px; margin-bottom: 8px;">副本隐藏后将不会出现在所有副本选项中<br/>鼠标移入列表难度 Tag 可查看该副本本周 CD</div>
-    <n-data-table :columns="columns" :data="tableRows" :pagination="false" table-layout="fixed" :default-expand-all="true" />
+    <n-data-table :columns="columns" :data="tableRows" :pagination="false" table-layout="fixed" :expanded-row-keys="expandedKeys" @update:expanded-row-keys="(keys: string[]) => expandedKeys = keys" />
   </n-card>
 
   <n-modal v-model:show="showEdit" preset="card" title="编辑副本" style="max-width: 560px">
@@ -49,7 +49,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, reactive, ref } from 'vue'
+import { computed, h, reactive, ref, watch } from 'vue'
 import { NPopover, NTag, type DataTableColumns, useDialog } from 'naive-ui'
 import type { Dungeon } from '../../types'
 import { useTracker } from '../../composables/useTracker'
@@ -63,6 +63,8 @@ interface DungeonTableRow {
   difficulty?: '普通' | '英雄' | '挑战'
   followed?: boolean
   hidden?: boolean
+  pinned?: boolean
+  allHidden?: boolean
   configText?: string
   isGroup: boolean
   children?: DungeonTableRow[]
@@ -105,7 +107,15 @@ const tableRows = computed<DungeonTableRow[]>(() => {
   })
 
   return Array.from(groupMap.entries())
-    .sort((a, b) => a[0].localeCompare(b[0], 'zh-CN'))
+    .sort(([, listA], [, listB]) => {
+      const aPinned = listA.some((d) => d.pinned)
+      const bPinned = listB.some((d) => d.pinned)
+      if (aPinned !== bPinned) return aPinned ? -1 : 1
+      const aHidden = listA.every((d) => d.hidden)
+      const bHidden = listB.every((d) => d.hidden)
+      if (aHidden !== bHidden) return aHidden ? 1 : -1
+      return listA[0]?.name.localeCompare(listB[0]?.name ?? '', 'zh-CN') ?? 0
+    })
     .map(([name, list]) => {
       const children: DungeonTableRow[] = list
         .slice()
@@ -118,20 +128,28 @@ const tableRows = computed<DungeonTableRow[]>(() => {
           difficulty: dungeon.difficulty,
           followed: dungeon.followed,
           hidden: dungeon.hidden,
+          pinned: dungeon.pinned,
           configText: `${dungeon.players}${dungeon.difficulty}`,
           isGroup: false
         }))
 
+      const allHidden = list.every((d) => d.hidden)
       const configText = children.map((item) => item.configText).join('、')
       return {
         key: `group-${name}`,
         name,
         configText,
+        allHidden,
         isGroup: true,
         children
       }
     })
 })
+
+const expandedKeys = ref<string[]>([])
+watch(tableRows, (rows) => {
+  expandedKeys.value = rows.filter((r) => !r.allHidden).map((r) => r.key)
+}, { immediate: true })
 
 const rosterRows = computed<RosterRow[]>(() => {
   const rows = tracker.getGroupBrandRoster()
@@ -279,9 +297,24 @@ const columns: DataTableColumns<DungeonTableRow> = [
   {
     title: '操作',
     key: 'actions',
-    width: 260,
+    width: 320,
     render: (row) => {
-      if (row.isGroup) return null
+      if (row.isGroup) {
+        const isPinned = row.children?.some((c) => c.pinned)
+        const btns = []
+        if (!row.allHidden) {
+          btns.push(h('button', {
+            class: 'mini-btn',
+            style: isPinned ? 'color: #e6a23c; border-color: #e6a23c;' : '',
+            onClick: () => tracker.toggleDungeonPinned(row.name)
+          }, isPinned ? '取消置顶' : '置顶'))
+        }
+        btns.push(h('button', {
+          class: row.allHidden ? 'mini-btn' : 'mini-btn warning',
+          onClick: () => tracker.toggleDungeonHidden(row.name)
+        }, row.allHidden ? '显示' : '隐藏'))
+        return h('div', { class: 'action-group' }, btns)
+      }
       return h('div', { class: 'action-group' }, [
         h(
           'button',
@@ -290,14 +323,6 @@ const columns: DataTableColumns<DungeonTableRow> = [
             onClick: () => openEdit(row)
           },
           '编辑'
-        ),
-        h(
-          'button',
-          {
-            class: row.hidden ? 'mini-btn' : 'mini-btn warning',
-            onClick: () => tracker.toggleDungeonHidden(row.id!)
-          },
-          row.hidden ? '显示' : '隐藏'
         ),
         h(
           'button',

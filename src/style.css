@@ -75,9 +75,14 @@ body {
   color: #3f83f8;
 }
 
-.mini-btn.danger:hover {
+.mini-btn.danger {
   border-color: #d03050;
   color: #d03050;
+}
+
+.mini-btn.danger:hover {
+  border-color: #ab1f3f;
+  color: #ab1f3f;
 }
 
 .mini-btn.warning {

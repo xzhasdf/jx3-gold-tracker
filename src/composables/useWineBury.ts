@@ -1,15 +1,6 @@
-import { ref } from 'vue'
+import { useTracker } from './useTracker'
+import type { WineBuryItem } from '../types'
 
-export interface WineBuryItem {
-  id: string
-  wineType: string
-  target: string
-  roleId?: string
-  startTime: number  // timestamp ms
-  endTime: number    // timestamp ms
-}
-
-const STORAGE_KEY = 'jx3_wine_bury'
 const DISMISS_KEY = 'jx3_wine_bury_dismiss'
 
 const TARGET_HOURS: Record<string, number> = {
@@ -20,24 +11,20 @@ const TARGET_HOURS: Record<string, number> = {
   '藏百日': 2160,
 }
 
-const items = ref<WineBuryItem[]>([])
-let loaded = false
-
-function load() {
-  if (loaded) return
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) items.value = JSON.parse(raw)
-  } catch { /* ignore */ }
-  loaded = true
-}
-
-function persist() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(items.value))
-}
-
 export function useWineBury() {
-  load()
+  const tracker = useTracker()
+  const items = tracker.wineBury
+
+  // 自动清理到期超过 24 小时的记录
+  const expireThreshold = 24 * 3600 * 1000
+  const now = Date.now()
+  const before = items.value.length
+  items.value = items.value.filter((w) => now - w.endTime < expireThreshold || w.endTime > now)
+  if (items.value.length < before) tracker.persist()
+
+  function persistData() {
+    tracker.persist()
+  }
 
   function addWine(wineType: string, target: string, roleId?: string) {
     const hours = TARGET_HOURS[target]
@@ -51,12 +38,12 @@ export function useWineBury() {
       startTime: now,
       endTime: now + hours * 3600 * 1000,
     })
-    persist()
+    persistData()
   }
 
   function removeWine(id: string) {
     items.value = items.value.filter((w) => w.id !== id)
-    persist()
+    persistData()
   }
 
   function getProgress(item: WineBuryItem): number {

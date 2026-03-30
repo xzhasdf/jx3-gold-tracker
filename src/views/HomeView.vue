@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.2.2</span>
+          <span class="header-version">v1.2.3</span>
         </div>
         <n-dropdown trigger="click" :options="settingOptions" @select="handleSettingSelect">
           <button class="gear-btn" type="button" aria-label="设置">⚙</button>
@@ -109,6 +109,17 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.2.3',
+    items: [
+      '编辑收支记录支持修改日期/角色/副本',
+      '副本管理：置顶、隐藏改为按副本名称整组操作，移至父行',
+      '副本管理：隐藏副本默认折叠、置底显示',
+      '收支明细新增「列排序」，可选择显示哪些列，配置随数据导出',
+      '家园藏酒数据纳入主数据流，支持导入导出',
+      '家园藏酒到期 24 小时后自动清理',
+    ]
+  },
   {
     version: 'v1.2.2',
     items: [
@@ -232,7 +243,7 @@ async function handleSettingSelect(key: string | number) {
   if (key === 'export-data') {
     if (!window.electronAPI) { showAppOnlyTip(); return }
     try {
-      const state = JSON.parse(JSON.stringify({ roles: tracker.roles.value, dungeons: tracker.dungeons.value, records: tracker.records.value }))
+      const state = JSON.parse(JSON.stringify({ roles: tracker.roles.value, dungeons: tracker.dungeons.value, records: tracker.records.value, columnConfig: tracker.columnConfig.value, wineBury: tracker.wineBury.value }))
       const result = await window.electronAPI.exportData(state)
       if (result?.ok) {
         message.success('数据已成功导出')
