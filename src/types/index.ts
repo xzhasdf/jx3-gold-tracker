@@ -4,6 +4,7 @@ export interface Role {
   school: string
   isProxyClear: boolean
   wageRatio: number
+  ignoreCd?: boolean
 }
 
 export interface Dungeon {

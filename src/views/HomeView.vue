@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.2.3</span>
+          <span class="header-version">v1.2.4</span>
         </div>
         <n-dropdown trigger="click" :options="settingOptions" @select="handleSettingSelect">
           <button class="gear-btn" type="button" aria-label="设置">⚙</button>
@@ -109,6 +109,14 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.2.4',
+    items: [
+      '角色管理新增「忽略副本CD」按钮，可将指定角色从副本CD浮窗中排除',
+      '修复窗口图标未显示的问题',
+      '更换应用程序图标',
+    ]
+  },
   {
     version: 'v1.2.3',
     items: [

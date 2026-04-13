@@ -40,7 +40,8 @@ function normalizeRole(input: Role): Role {
     isProxyClear: Boolean((input as Partial<Role>).isProxyClear),
     wageRatio: Number.isFinite((input as Partial<Role>).wageRatio)
       ? Math.min(100, Math.max(0, Number((input as Partial<Role>).wageRatio)))
-      : 100
+      : 100,
+    ignoreCd: Boolean((input as Partial<Role>).ignoreCd)
   }
 }
 
@@ -134,6 +135,14 @@ function deleteRole(id: string): { ok: boolean; message?: string } {
     return { ok: false, message: '该角色已有关联收支记录，无法删除' }
   }
   roles.value = roles.value.filter((r) => r.id !== id)
+  persist()
+  return { ok: true }
+}
+
+function toggleRoleCdIgnore(id: string): { ok: boolean; message?: string } {
+  const target = roles.value.find((r) => r.id === id)
+  if (!target) return { ok: false, message: '角色不存在' }
+  target.ignoreCd = !target.ignoreCd
   persist()
   return { ok: true }
 }
@@ -372,7 +381,7 @@ function getWeeklyCdStatusByRole() {
     clearedByRole.set(record.roleId, dungeonSet)
   })
 
-  return roles.value.map((role) => {
+  return roles.value.filter((role) => !role.ignoreCd).map((role) => {
     const clearedSet = clearedByRole.get(role.id) ?? new Set<string>()
     const dungeons = allDungeons.map((dungeon) => ({
       dungeonId: dungeon.id,
@@ -413,6 +422,7 @@ export function useTracker() {
     addRole,
     updateRole,
     deleteRole,
+    toggleRoleCdIgnore,
     moveRole,
     addDungeon,
     updateDungeon,

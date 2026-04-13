@@ -207,6 +207,14 @@ const columns: DataTableColumns<Role> = [
         h(
           'button',
           {
+            class: row.ignoreCd ? 'mini-btn warning' : 'mini-btn',
+            onClick: () => tracker.toggleRoleCdIgnore(row.id)
+          },
+          row.ignoreCd ? '恢复副本CD' : '忽略副本CD'
+        ),
+        h(
+          'button',
+          {
             class: 'mini-btn',
             onClick: () => openEdit(row)
           },
