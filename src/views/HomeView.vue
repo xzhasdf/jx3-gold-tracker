@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.2.6</span>
+          <span class="header-version">v1.2.7</span>
         </div>
         <n-dropdown trigger="click" :options="settingOptions" @select="handleSettingSelect">
           <button class="gear-btn" type="button" aria-label="设置">⚙</button>
@@ -122,6 +122,16 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.2.7',
+    items: [
+      '收支明细的副本筛选纳入已隐藏副本，标注「已隐藏」(warning) 标签',
+      '副本级联选项排序固定为人数（10人 → 25人）/ 难度（普通 → 英雄 → 挑战），同难度下隐藏副本沉底并按创建时间排序',
+      '编辑历史记录时若指向已隐藏副本可正确显示并允许保存',
+      '修复收支明细列表分页器消失（误用 remote 模式）',
+      '收支明细「重置」按钮把日期范围回到本周（与初始化一致）',
+    ]
+  },
   {
     version: 'v1.2.6',
     items: [

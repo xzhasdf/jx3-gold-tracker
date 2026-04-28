@@ -20,7 +20,8 @@
             filterable
             check-strategy="child"
             expand-trigger="hover"
-            :options="dungeonCascaderOptions"
+            :options="filterDungeonCascaderOptions"
+            :render-label="renderDungeonCascaderLabel"
             placeholder="全部副本"
             :style="fieldStyle"
           />
@@ -81,12 +82,10 @@
         </n-popover>
       </div>
       <n-data-table
-        remote
         :columns="columns"
-        :data="displayRows"
+        :data="rows"
         :pagination="{ pageSize: 10 }"
         :scroll-x="1200"
-        @update:sorter="handleSorterChange"
       />
     </n-card>
   </n-space>
@@ -117,6 +116,7 @@
         <n-cascader
           v-model:value="addForm.dungeonId"
           :options="dungeonCascaderOptions"
+          :render-label="renderDungeonCascaderLabel"
           clearable
           filterable
           check-strategy="child"
@@ -181,7 +181,7 @@
         />
       </n-form-item>
       <n-form-item label="副本">
-        <n-cascader v-model:value="editForm.dungeonId" :options="dungeonCascaderOptions" check-strategy="child" filterable expand-trigger="hover" :style="fieldStyle" />
+        <n-cascader v-model:value="editForm.dungeonId" :options="editDungeonCascaderOptions" :render-label="renderDungeonCascaderLabel" check-strategy="child" filterable expand-trigger="hover" :style="fieldStyle" />
       </n-form-item>
       <n-form-item label="收入">
         <n-input-number v-model:value="editForm.incomeGold" :min="0" :show-button="false" :style="fieldStyle" />
@@ -254,7 +254,7 @@
 
 <script setup lang="ts">
 import { computed, h, reactive, ref, watch } from 'vue'
-import { NSlider, NTag, type CascaderOption, type DataTableColumns, type DataTableSortState, useDialog } from 'naive-ui'
+import { NSlider, NTag, type CascaderOption, type DataTableColumns, useDialog } from 'naive-ui'
 import { useTracker } from '../../composables/useTracker'
 import { useOcrState } from '../../composables/useOcrState'
 import { FIXED_DUNGEON_OPTIONS } from '../../constants/game'
@@ -376,45 +376,88 @@ const FIXED_DUNGEON_ID_SET = new Set<string>(FIXED_DUNGEON_OPTIONS.map((d) => d.
 const isAddFixedDungeon = computed(() => FIXED_DUNGEON_ID_SET.has(addForm.dungeonId ?? ''))
 const isEditFixedDungeon = computed(() => FIXED_DUNGEON_ID_SET.has(editForm.dungeonId ?? ''))
 
-const dungeonCascaderOptions = computed<CascaderOption[]>(() => {
+function extractCreatedAt(id: string): number {
+  const match = id.match(/(\d{10,})/)
+  return match ? Number(match[1]) : 0
+}
+
+type DungeonHiddenInclusion = 'none' | 'all' | Set<string>
+
+function buildDungeonCascaderOptions(hiddenInclusion: DungeonHiddenInclusion): CascaderOption[] {
   const fixed: CascaderOption[] = FIXED_DUNGEON_OPTIONS.map((d) => ({ label: d.label, value: d.id }))
 
-  const playerMap = new Map<string, Map<string, { label: string; value: string }[]>>()
-  tracker.dungeons.value.filter((d) => !d.hidden).forEach((dungeon) => {
-    const difficultyMap = playerMap.get(dungeon.players) ?? new Map<string, { label: string; value: string }[]>()
-    const names = difficultyMap.get(dungeon.difficulty) ?? []
-    names.push({ label: dungeon.name, value: dungeon.id })
-    difficultyMap.set(dungeon.difficulty, names)
-    playerMap.set(dungeon.players, difficultyMap)
+  const playerMap = new Map<string, Map<string, { label: string; value: string; hidden?: boolean }[]>>()
+  tracker.dungeons.value
+    .filter((d) => {
+      if (!d.hidden) return true
+      if (hiddenInclusion === 'all') return true
+      if (hiddenInclusion === 'none') return false
+      return hiddenInclusion.has(d.id)
+    })
+    .forEach((dungeon) => {
+      const difficultyMap = playerMap.get(dungeon.players) ?? new Map<string, { label: string; value: string; hidden?: boolean }[]>()
+      const names = difficultyMap.get(dungeon.difficulty) ?? []
+      names.push({ label: dungeon.name, value: dungeon.id, hidden: dungeon.hidden })
+      difficultyMap.set(dungeon.difficulty, names)
+      playerMap.set(dungeon.players, difficultyMap)
+    })
+
+  // 每个叶子分组内：可见副本在前（保持原顺序），隐藏副本在后并按创建时间升序
+  playerMap.forEach((difficultyMap) => {
+    difficultyMap.forEach((names) => {
+      names.sort((a, b) => {
+        if (!!a.hidden !== !!b.hidden) return a.hidden ? 1 : -1
+        if (a.hidden && b.hidden) return extractCreatedAt(a.value) - extractCreatedAt(b.value)
+        return 0
+      })
+    })
   })
 
-  const userOptions = Array.from(playerMap.entries()).map(([players, difficultyMap]) => ({
-    label: players,
-    value: players,
-    children: Array.from(difficultyMap.entries()).map(([difficulty, names]) => ({
-      label: difficulty,
-      value: `${players}-${difficulty}`,
-      children: names
+  const playerOrder: Record<string, number> = { '10人': 0, '25人': 1 }
+  const difficultyOrder: Record<string, number> = { '普通': 0, '英雄': 1, '挑战': 2 }
+
+  const userOptions = Array.from(playerMap.entries())
+    .sort(([a], [b]) => (playerOrder[a] ?? 99) - (playerOrder[b] ?? 99))
+    .map(([players, difficultyMap]) => ({
+      label: players,
+      value: players,
+      children: Array.from(difficultyMap.entries())
+        .sort(([a], [b]) => (difficultyOrder[a] ?? 99) - (difficultyOrder[b] ?? 99))
+        .map(([difficulty, names]) => ({
+          label: difficulty,
+          value: `${players}-${difficulty}`,
+          children: names
+        }))
     }))
-  }))
 
   return [...userOptions, ...fixed]
+}
+
+const dungeonCascaderOptions = computed<CascaderOption[]>(() => buildDungeonCascaderOptions('none'))
+const filterDungeonCascaderOptions = computed<CascaderOption[]>(() => buildDungeonCascaderOptions('all'))
+
+const editDungeonCascaderOptions = computed<CascaderOption[]>(() => {
+  const id = editForm.dungeonId ?? ''
+  const hidden = id ? tracker.dungeons.value.find((d) => d.id === id && d.hidden) : null
+  return buildDungeonCascaderOptions(hidden ? new Set([hidden.id]) : 'none')
 })
+
+function renderDungeonCascaderLabel(option: CascaderOption) {
+  const label = String(option.label ?? '')
+  if ((option as { hidden?: boolean }).hidden) {
+    return h('span', { style: 'display:inline-flex;align-items:center;gap:6px;' }, [
+      h('span', label),
+      h(NTag, {
+        type: 'warning',
+        size: 'small',
+        style: 'transform: scale(0.9); transform-origin: left center;'
+      }, { default: () => '已隐藏' })
+    ])
+  }
+  return label
+}
 
 const rows = computed(() => tracker.queryRecords(filters))
-const activeSorter = ref<{ columnKey: 'income' | 'expense' | 'subtotal' | null; order: false | 'ascend' | 'descend' }>({
-  columnKey: null,
-  order: false
-})
-
-const displayRows = computed(() => {
-  const { columnKey, order } = activeSorter.value
-  if (!columnKey || order === false) return rows.value
-
-  const factor = order === 'ascend' ? 1 : -1
-  return [...rows.value].sort((a, b) => (a[columnKey] - b[columnKey]) * factor)
-})
-
 const totals = computed(() =>
   rows.value.reduce(
     (acc, row) => {
@@ -541,7 +584,7 @@ function renderSchoolOption(option: { label?: string | number }) {
 function resetFilters() {
   filters.roleId = null
   filters.dungeonId = null
-  filters.range = null
+  filters.range = tracker.getCurrentWeekRange()
   filters.keyword = ''
 }
 
@@ -810,24 +853,21 @@ const allColumns = computed<DataTableColumns<(typeof rows.value)[number]>>(() =>
     title: '收入',
     key: 'income',
     minWidth: 90,
-    sorter: 'default',
-    sortOrder: activeSorter.value.columnKey === 'income' ? activeSorter.value.order : false,
+    sorter: (a, b) => a.income - b.income,
     render: (row) => h(MoneyValue, { value: row.income })
   },
   {
     title: '支出',
     key: 'expense',
     minWidth: 90,
-    sorter: 'default',
-    sortOrder: activeSorter.value.columnKey === 'expense' ? activeSorter.value.order : false,
+    sorter: (a, b) => a.expense - b.expense,
     render: (row) => h(MoneyValue, { value: row.expense })
   },
   {
     title: '收支小计',
     key: 'subtotal',
     minWidth: 100,
-    sorter: 'default',
-    sortOrder: activeSorter.value.columnKey === 'subtotal' ? activeSorter.value.order : false,
+    sorter: (a, b) => a.subtotal - b.subtotal,
     render: (row) => h(MoneyValue, { value: row.subtotal })
   },
   {
@@ -880,19 +920,6 @@ const columns = computed(() =>
   })
 )
 
-function handleSorterChange(sorter: DataTableSortState | DataTableSortState[] | null) {
-  const target = Array.isArray(sorter) ? sorter[0] : sorter
-  if (!target || !target.columnKey || !target.order) {
-    activeSorter.value = { columnKey: null, order: false }
-    return
-  }
-  if (target.columnKey === 'income' || target.columnKey === 'expense' || target.columnKey === 'subtotal') {
-    activeSorter.value = {
-      columnKey: target.columnKey,
-      order: target.order
-    }
-  }
-}
 </script>
 
 <style scoped>
