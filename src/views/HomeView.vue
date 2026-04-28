@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.2.5</span>
+          <span class="header-version">v1.2.6</span>
         </div>
         <n-dropdown trigger="click" :options="settingOptions" @select="handleSettingSelect">
           <button class="gear-btn" type="button" aria-label="设置">⚙</button>
@@ -122,6 +122,16 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.2.6',
+    items: [
+      '收支记录选择「百战/试炼之地/其他」时，「黑本人」字段也一同隐藏',
+      '修复编辑收支记录切换到固定副本时未清空团牌/团长的问题',
+      '总览页折线图 tab 改为保留 DOM，切换不再卡顿',
+      '总览页角色筛选下拉、汇总明细表格的代清角色添加「代清」标签（不显示比例）',
+      '开发者新增 DISABLE_OCR 环境变量，本地启动可跳过 OCR 子进程',
+    ]
+  },
   {
     version: 'v1.2.5',
     items: [

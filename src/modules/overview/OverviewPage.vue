@@ -62,7 +62,7 @@
       </n-grid-item>
     </n-grid>
 
-    <n-tabs type="segment" animated>
+    <n-tabs type="segment" animated display-directive="show:lazy">
       <n-tab-pane name="summary" tab="汇总明细">
         <n-card>
           <n-data-table :columns="columns" :data="rows" :pagination="{ pageSize: 20 }" />
@@ -80,7 +80,7 @@
 
 <script setup lang="ts">
 import { computed, h, reactive } from 'vue'
-import type { DataTableColumns } from 'naive-ui'
+import { NTag, type DataTableColumns } from 'naive-ui'
 import { useTracker } from '../../composables/useTracker'
 import OverviewTrend from './OverviewTrend.vue'
 import BlackPersonTrendPage from './BlackPersonTrendPage.vue'
@@ -127,7 +127,8 @@ function renderRoleOption(option: { value?: string | number }) {
   return h('span', { style: 'display:inline-flex;align-items:center;gap:4px;' }, [
     h('span', `${role.id}（${role.server}/`),
     h(SchoolBadge, { school: role.school }),
-    h('span', '）')
+    h('span', '）'),
+    role.isProxyClear ? h(NTag, { type: 'success', size: 'small' }, { default: () => '代清' }) : null
   ])
 }
 
@@ -230,10 +231,12 @@ const columns: DataTableColumns<OverviewRow> = [
     render: (row) => {
       const isRoleRow = row.key.startsWith('role-')
       if (isRoleRow && row.roleId && row.roleServer && row.roleSchool) {
+        const role = roleMap.value.get(row.roleId)
         return h('span', { style: 'font-weight: 600; display:inline-flex; align-items:center; gap:4px;' }, [
           h('span', `${row.roleId}（${row.roleServer}/`),
           h(SchoolBadge, { school: row.roleSchool }),
-          h('span', '）')
+          h('span', '）'),
+          role?.isProxyClear ? h(NTag, { type: 'success', size: 'small' }, { default: () => '代清' }) : null
         ])
       }
       return h('span', { style: isRoleRow ? 'font-weight: 600;' : '' }, row.name)

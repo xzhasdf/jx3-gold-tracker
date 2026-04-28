@@ -65,6 +65,11 @@ class PythonOcrManager {
   }
 
   start() {
+    if (process.env.DISABLE_OCR === '1') {
+      console.log('[OCR] Disabled via DISABLE_OCR env var')
+      this._disabled = true
+      return
+    }
     if (!this.isAvailable()) {
       console.log('[OCR] Python runtime not found, OCR disabled')
       this._disabled = true

@@ -150,10 +150,10 @@
         <n-form-item label="团长ID">
           <n-input v-model:value="addForm.leaderId" :style="fieldStyle" />
         </n-form-item>
+        <n-form-item label="黑本人">
+          <n-input v-model:value="addForm.blackPerson" placeholder="填写黑本人" :style="fieldStyle" />
+        </n-form-item>
       </template>
-      <n-form-item label="黑本人">
-        <n-input v-model:value="addForm.blackPerson" placeholder="填写黑本人" :style="fieldStyle" />
-      </n-form-item>
       <n-form-item label="备注">
         <n-input v-model:value="addForm.remark" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" :style="fieldStyle" />
       </n-form-item>
@@ -202,10 +202,10 @@
         <n-form-item label="团长ID">
           <n-input v-model:value="editForm.leaderId" :style="fieldStyle" />
         </n-form-item>
+        <n-form-item label="黑本人">
+          <n-input v-model:value="editForm.blackPerson" placeholder="填写黑本人" :style="fieldStyle" />
+        </n-form-item>
       </template>
-      <n-form-item label="黑本人">
-        <n-input v-model:value="editForm.blackPerson" placeholder="填写黑本人" :style="fieldStyle" />
-      </n-form-item>
       <n-form-item label="备注">
         <n-input v-model:value="editForm.remark" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" :style="fieldStyle" />
       </n-form-item>
@@ -488,6 +488,19 @@ watch(
       addForm.groupBrand = ''
       addForm.leaderId = ''
       addForm.blacklisted = false
+      addForm.blackPerson = ''
+    }
+  }
+)
+
+watch(
+  () => editForm.dungeonId,
+  (id) => {
+    if (FIXED_DUNGEON_ID_SET.has(id ?? '')) {
+      editForm.groupBrand = ''
+      editForm.leaderId = ''
+      editForm.blacklisted = false
+      editForm.blackPerson = ''
     }
   }
 )
