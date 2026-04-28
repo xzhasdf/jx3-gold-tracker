@@ -551,7 +551,20 @@ function openAddModal() {
   }
   addForm.date = Date.now()
   addForm.roleId = roleOptionsForAddRecord.value[0]?.value ?? tracker.roles.value[0].id
-  addForm.dungeonId = tracker.dungeons.value[0].id
+  const visibleDungeons = tracker.dungeons.value.filter((d) => !d.hidden)
+  const priorities: { players: '10人' | '25人'; difficulty: '普通' | '英雄' | '挑战' }[] = [
+    { players: '10人', difficulty: '普通' },
+    { players: '25人', difficulty: '普通' },
+    { players: '25人', difficulty: '英雄' },
+    { players: '25人', difficulty: '挑战' }
+  ]
+  let defaultDungeon
+  for (const p of priorities) {
+    defaultDungeon = visibleDungeons.find((d) => d.players === p.players && d.difficulty === p.difficulty)
+    if (defaultDungeon) break
+  }
+  defaultDungeon = defaultDungeon ?? visibleDungeons[0] ?? tracker.dungeons.value[0]
+  addForm.dungeonId = defaultDungeon.id
   addForm.incomeGold = 0
   addForm.expenseGold = 0
   addForm.groupBrand = ''

@@ -39,6 +39,7 @@ export interface WineBuryItem {
   roleId?: string
   startTime: number
   endTime: number
+  dismissed?: boolean
 }
 
 export interface StoreState {

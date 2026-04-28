@@ -1,8 +1,6 @@
 import { useTracker } from './useTracker'
 import type { WineBuryItem } from '../types'
 
-const DISMISS_KEY = 'jx3_wine_bury_dismiss'
-
 const TARGET_HOURS: Record<string, number> = {
   '今朝醉': 24,
   '六日醉': 144,
@@ -14,13 +12,6 @@ const TARGET_HOURS: Record<string, number> = {
 export function useWineBury() {
   const tracker = useTracker()
   const items = tracker.wineBury
-
-  // 自动清理到期超过 24 小时的记录
-  const expireThreshold = 24 * 3600 * 1000
-  const now = Date.now()
-  const before = items.value.length
-  items.value = items.value.filter((w) => now - w.endTime < expireThreshold || w.endTime > now)
-  if (items.value.length < before) tracker.persist()
 
   function persistData() {
     tracker.persist()
@@ -72,24 +63,19 @@ export function useWineBury() {
     const now = Date.now()
     const threshold = 24 * 3600 * 1000
     return items.value.filter((w) => {
+      if (w.dismissed) return false
       const remaining = w.endTime - now
-      return remaining > 0 && remaining <= threshold
+      // 即将到期（24小时内）或已经到期（仅在用户未手动清理时持续提醒）
+      return remaining <= threshold
     })
   }
 
-  function isDismissed(): boolean {
-    try {
-      const raw = localStorage.getItem(DISMISS_KEY)
-      if (!raw) return false
-      const dismissUntil = Number(raw)
-      return Date.now() < dismissUntil
-    } catch {
-      return false
-    }
-  }
-
-  function dismiss24h() {
-    localStorage.setItem(DISMISS_KEY, String(Date.now() + 24 * 3600 * 1000))
+  function dismissWines(ids: string[]) {
+    const idSet = new Set(ids)
+    items.value.forEach((w) => {
+      if (idSet.has(w.id)) w.dismissed = true
+    })
+    persistData()
   }
 
   return {
@@ -100,8 +86,7 @@ export function useWineBury() {
     getRemainingText,
     hasUpcomingWine,
     getUpcomingWines,
-    isDismissed,
-    dismiss24h,
+    dismissWines,
     TARGET_HOURS,
   }
 }

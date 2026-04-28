@@ -10,12 +10,14 @@ export const DIFFICULTY_OPTIONS = ['普通', '英雄', '挑战'] as const
 // 固定副本选项：选中时不需要填写团牌/团长等团队信息
 export const FIXED_DUNGEON_OPTIONS = [
   { id: '__fixed_baizhang__', label: '百战' },
-  { id: '__fixed_shilian__', label: '试炼之地' }
+  { id: '__fixed_shilian__', label: '试炼之地' },
+  { id: '__fixed_other__', label: '其他' }
 ] as const
 
 export const FIXED_DUNGEON_LABEL: Record<string, string> = {
   __fixed_baizhang__: '百战',
-  __fixed_shilian__: '试炼之地'
+  __fixed_shilian__: '试炼之地',
+  __fixed_other__: '其他'
 }
 
 export const DEFAULT_DUNGEONS = [

@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.2.4</span>
+          <span class="header-version">v1.2.5</span>
         </div>
         <n-dropdown trigger="click" :options="settingOptions" @select="handleSettingSelect">
           <button class="gear-btn" type="button" aria-label="设置">⚙</button>
@@ -66,18 +66,29 @@ const wineBury = useWineBury()
 
 onMounted(() => {
   const upcomingWines = wineBury.getUpcomingWines()
-  if (upcomingWines.length > 0 && !wineBury.isDismissed()) {
+  if (upcomingWines.length > 0) {
     const roleMap = new Map(tracker.roles.value.map((r) => [r.id, r]))
+    const now = Date.now()
+    const hasFinished = upcomingWines.some((w) => w.endTime - now <= 0)
+    const hasUpcoming = upcomingWines.some((w) => w.endTime - now > 0)
+    const headerText = hasFinished && hasUpcoming
+      ? '家园藏酒即将完成或已完成，请注意：'
+      : hasFinished
+      ? '家园藏酒已完成，请注意：'
+      : '家园藏酒即将完成，请注意：'
     const dismissChecked = ref(false)
     dialog.info({
       title: '埋酒提醒',
       content: () => h('div', null, [
-        h('div', null, '家园藏酒即将完成，请注意：'),
+        h('div', null, headerText),
         h('ul', { style: 'margin: 8px 0 0; padding-left: 20px; line-height: 1.8;' },
           upcomingWines.map((w) => {
             const role = w.roleId ? roleMap.get(w.roleId) : null
             const roleText = role ? `(${role.id}@${role.server})` : ''
-            return h('li', null, `${w.wineType}·${w.target}${roleText}`)
+            const statusSuffix = hasFinished && hasUpcoming
+              ? ` [${w.endTime - now <= 0 ? '已完成' : '即将完成'}]`
+              : ''
+            return h('li', null, `${w.wineType}·${w.target}${roleText}${statusSuffix}`)
           })
         ),
         h('div', { style: 'margin-top: 12px;' }, [
@@ -89,7 +100,9 @@ onMounted(() => {
       ]),
       positiveText: '我知道了',
       onPositiveClick: () => {
-        if (dismissChecked.value) wineBury.dismiss24h()
+        if (dismissChecked.value) {
+          wineBury.dismissWines(upcomingWines.map((w) => w.id))
+        }
       }
     })
   }
@@ -109,6 +122,16 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.2.5',
+    items: [
+      '副本选项新增「其他」固定项，规则同「百战」「试炼之地」（无需填写团牌/团长）',
+      '新增收支记录默认副本优先级修正：10人普通 → 25人普通 → 25人英雄 → 25人挑战，避免选中隐藏副本',
+      '家园藏酒到期不再自动清理，已完成的酒在用户手动删除前持续保留并提醒',
+      '埋酒提醒「本次不再提示」改为按本次弹窗中的酒维度处理：仅当前这些酒不再提示，新到达阈值的酒仍会触发',
+      '埋酒提醒文案根据状态动态显示；混合状态下每条酒标注「即将完成 / 已完成」',
+    ]
+  },
   {
     version: 'v1.2.4',
     items: [
