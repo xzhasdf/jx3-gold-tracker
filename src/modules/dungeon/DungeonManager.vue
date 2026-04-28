@@ -18,7 +18,7 @@
       </n-form-item>
     </n-form>
     <n-divider />
-    <div style="color: #666; font-size: 12px; margin-bottom: 8px;">副本隐藏后将不会出现在所有副本选项中<br/>鼠标移入列表难度 Tag 可查看该副本本周 CD</div>
+    <div style="color: #666; font-size: 12px; margin-bottom: 8px;">副本隐藏后将不会出现在新建选项中<br/>鼠标移入列表难度 Tag 可查看该副本本周 CD</div>
     <n-data-table :columns="columns" :data="tableRows" :pagination="false" table-layout="fixed" :expanded-row-keys="expandedKeys" @update:expanded-row-keys="(keys: string[]) => expandedKeys = keys" />
   </n-card>
 
