@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.2.7</span>
+          <span class="header-version">v1.2.8</span>
         </div>
         <n-dropdown trigger="click" :options="settingOptions" @select="handleSettingSelect">
           <button class="gear-btn" type="button" aria-label="设置">⚙</button>
@@ -122,6 +122,12 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.2.8',
+    items: [
+      '家园藏酒已完成项新增「重置」按钮（warning 样式），点击后开始时间设为当前、按目标时长重新计算结束时间',
+    ]
+  },
   {
     version: 'v1.2.7',
     items: [

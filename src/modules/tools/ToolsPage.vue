@@ -114,7 +114,16 @@
           />
           <div class="wine-item-info">
             <span>{{ formatTime(item.startTime) }} ~ {{ formatTime(item.endTime) }}</span>
-            <span :class="{ 'wine-done': wineBury.getProgress(item) >= 100 }">{{ wineBury.getRemainingText(item) }}</span>
+            <span class="wine-item-status">
+              <span :class="{ 'wine-done': wineBury.getProgress(item) >= 100 }">{{ wineBury.getRemainingText(item) }}</span>
+              <n-button
+                v-if="wineBury.getProgress(item) >= 100"
+                size="tiny"
+                type="warning"
+                ghost
+                @click="handleReset(item.id)"
+              >重置</n-button>
+            </span>
           </div>
         </div>
       </div>
@@ -257,6 +266,10 @@ function renderRoleOption(option: { value?: string | number; label?: string | nu
 
 function handleRemove(id: string) {
   wineBury.removeWine(id)
+}
+
+function handleReset(id: string) {
+  wineBury.resetWine(id)
 }
 
 function getTargetColor(target: string): string {
@@ -617,6 +630,12 @@ function formatTime(ts: number): string {
 .wine-done {
   color: #18a058;
   font-weight: bold;
+}
+
+.wine-item-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .wine-radio-grid {

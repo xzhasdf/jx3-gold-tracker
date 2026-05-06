@@ -37,6 +37,18 @@ export function useWineBury() {
     persistData()
   }
 
+  function resetWine(id: string) {
+    const item = items.value.find((w) => w.id === id)
+    if (!item) return
+    const hours = TARGET_HOURS[item.target]
+    if (!hours) return
+    const now = Date.now()
+    item.startTime = now
+    item.endTime = now + hours * 3600 * 1000
+    item.dismissed = false
+    persistData()
+  }
+
   function getProgress(item: WineBuryItem): number {
     const now = Date.now()
     if (now >= item.endTime) return 100
@@ -82,6 +94,7 @@ export function useWineBury() {
     items,
     addWine,
     removeWine,
+    resetWine,
     getProgress,
     getRemainingText,
     hasUpcomingWine,
