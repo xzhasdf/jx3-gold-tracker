@@ -13,12 +13,23 @@
       <n-form-item>
         <n-button type="primary" @click="handleAdd">添加副本</n-button>
       </n-form-item>
-      <n-form-item>
-        <n-button @click="showRoster = true">团牌名单</n-button>
-      </n-form-item>
     </n-form>
     <n-divider />
-    <div style="color: #666; font-size: 12px; margin-bottom: 8px;">副本隐藏后将不会出现在新建选项中<br/>鼠标移入列表难度 Tag 可查看该副本本周 CD</div>
+    <div class="dungeon-toolbar">
+      <div class="dungeon-toolbar-actions">
+        <n-button text type="primary" @click="showRoster = true">团牌名单</n-button>
+        <n-popover trigger="click" placement="bottom-start" :show-arrow="false" style="width: 320px; padding: 10px">
+          <template #trigger>
+            <n-button text type="primary">排序</n-button>
+          </template>
+          <DungeonSortList :options="sortOptions" @change="handleSortChange" />
+        </n-popover>
+        <n-button text type="primary" @click="showHidden = true">
+          已隐藏副本<template v-if="hiddenDungeons.length">（{{ hiddenDungeons.length }}）</template>
+        </n-button>
+      </div>
+      <div class="dungeon-tip">副本隐藏后将不会出现在新建选项中<br/>鼠标移入列表难度 Tag 可查看该副本本周 CD</div>
+    </div>
     <n-data-table :columns="columns" :data="tableRows" :pagination="false" table-layout="fixed" :expanded-row-keys="expandedKeys" @update:expanded-row-keys="(keys: string[]) => expandedKeys = keys" />
   </n-card>
 
@@ -46,14 +57,25 @@
     <n-data-table :columns="rosterColumns" :data="rosterRows" :pagination="false" />
   </n-modal>
 
+  <n-modal v-model:show="showHidden" preset="card" title="已隐藏副本" style="max-width: 560px">
+    <div v-if="hiddenDungeons.length === 0" style="color:#999;font-size:13px;">暂无隐藏副本</div>
+    <div v-else class="hidden-list">
+      <div v-for="d in hiddenDungeons" :key="d.id" class="hidden-item">
+        <span class="hidden-item-label">{{ d.players }}{{ d.difficulty }}{{ d.name }}</span>
+        <n-button size="tiny" @click="tracker.unhideDungeon(d.id)">显示</n-button>
+      </div>
+    </div>
+  </n-modal>
+
+
 </template>
 
 <script setup lang="ts">
 import { computed, h, reactive, ref, watch } from 'vue'
 import { NPopover, NTag, type DataTableColumns, useDialog } from 'naive-ui'
-import type { Dungeon } from '../../types'
 import { useTracker } from '../../composables/useTracker'
 import SchoolBadge from '../shared/SchoolBadge.vue'
+import DungeonSortList from './DungeonSortList.vue'
 
 interface DungeonTableRow {
   key: string
@@ -63,7 +85,6 @@ interface DungeonTableRow {
   difficulty?: '普通' | '英雄' | '挑战'
   followed?: boolean
   hidden?: boolean
-  pinned?: boolean
   allHidden?: boolean
   configText?: string
   isGroup: boolean
@@ -91,6 +112,7 @@ const form = reactive<{ players: '10人' | '25人'; difficulty: '普通' | '英�
 
 const showEdit = ref(false)
 const showRoster = ref(false)
+const showHidden = ref(false)
 const editingId = ref('')
 const editForm = reactive<{ players: '10人' | '25人'; difficulty: '普通' | '英雄' | '挑战'; name: string }>({
   players: '10人',
@@ -99,25 +121,11 @@ const editForm = reactive<{ players: '10人' | '25人'; difficulty: '普通' | '
 })
 
 const tableRows = computed<DungeonTableRow[]>(() => {
-  const groupMap = new Map<string, Dungeon[]>()
-  tracker.dungeons.value.forEach((item) => {
-    const list = groupMap.get(item.name) ?? []
-    list.push(item)
-    groupMap.set(item.name, list)
-  })
-
-  return Array.from(groupMap.entries())
-    .sort(([, listA], [, listB]) => {
-      const aPinned = listA.some((d) => d.pinned)
-      const bPinned = listB.some((d) => d.pinned)
-      if (aPinned !== bPinned) return aPinned ? -1 : 1
-      const aHidden = listA.every((d) => d.hidden)
-      const bHidden = listB.every((d) => d.hidden)
-      if (aHidden !== bHidden) return aHidden ? 1 : -1
-      return listA[0]?.name.localeCompare(listB[0]?.name ?? '', 'zh-CN') ?? 0
-    })
-    .map(([name, list]) => {
-      const children: DungeonTableRow[] = list
+  return tracker.orderedDungeonGroups.value
+    .filter((group) => !group.allHidden)
+    .map((group) => {
+      const visibleDungeons = group.dungeons.filter((d) => !d.hidden)
+      const children: DungeonTableRow[] = visibleDungeons
         .slice()
         .sort((a, b) => `${a.players}${a.difficulty}`.localeCompare(`${b.players}${b.difficulty}`, 'zh-CN'))
         .map((dungeon) => ({
@@ -127,24 +135,38 @@ const tableRows = computed<DungeonTableRow[]>(() => {
           players: dungeon.players,
           difficulty: dungeon.difficulty,
           followed: dungeon.followed,
-          hidden: dungeon.hidden,
-          pinned: dungeon.pinned,
+          hidden: false,
           configText: `${dungeon.players}${dungeon.difficulty}`,
           isGroup: false
         }))
 
-      const allHidden = list.every((d) => d.hidden)
       const configText = children.map((item) => item.configText).join('、')
       return {
-        key: `group-${name}`,
-        name,
+        key: `group-${group.name}`,
+        name: group.name,
         configText,
-        allHidden,
+        allHidden: false,
         isGroup: true,
         children
       }
     })
 })
+
+const sortOptions = computed(() =>
+  tracker.orderedDungeonGroups.value
+    .filter((g) => !g.allHidden)
+    .map((g) => ({ label: g.name, value: g.name }))
+)
+
+const hiddenDungeons = computed(() =>
+  tracker.dungeons.value
+    .filter((d) => d.hidden)
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN') || `${a.players}${a.difficulty}`.localeCompare(`${b.players}${b.difficulty}`, 'zh-CN'))
+)
+
+function handleSortChange(values: string[]) {
+  tracker.setDungeonOrder(values)
+}
 
 const expandedKeys = ref<string[]>([])
 watch(tableRows, (rows) => {
@@ -205,24 +227,9 @@ function saveEdit() {
   showEdit.value = false
 }
 
-function handleDelete(row: DungeonTableRow) {
+function handleHide(row: DungeonTableRow) {
   if (row.isGroup || !row.id) return
-  dialog.warning({
-    title: '删除确认',
-    content: `确认删除副本「${row.players}${row.difficulty}${row.name}」吗？`,
-    positiveText: '确认',
-    negativeText: '取消',
-    onPositiveClick: () => {
-      const result = tracker.deleteDungeon(row.id!)
-      if (!result.ok) {
-        dialog.warning({
-          title: '提示',
-          content: result.message ?? '操作失败',
-          positiveText: '知道了'
-        })
-      }
-    }
-  })
+  tracker.hideDungeon(row.id)
 }
 
 function renderDungeonCdPopover(dungeonId: string) {
@@ -300,38 +307,16 @@ const columns: DataTableColumns<DungeonTableRow> = [
     width: 320,
     render: (row) => {
       if (row.isGroup) {
-        const isPinned = row.children?.some((c) => c.pinned)
-        const btns = []
-        if (!row.allHidden) {
-          btns.push(h('button', {
-            class: 'mini-btn',
-            style: isPinned ? 'color: #e6a23c; border-color: #e6a23c;' : '',
-            onClick: () => tracker.toggleDungeonPinned(row.name)
-          }, isPinned ? '取消置顶' : '置顶'))
-        }
-        btns.push(h('button', {
-          class: row.allHidden ? 'mini-btn' : 'mini-btn warning',
-          onClick: () => tracker.toggleDungeonHidden(row.name)
-        }, row.allHidden ? '显示' : '隐藏'))
-        return h('div', { class: 'action-group' }, btns)
+        return h('div', { class: 'action-group' }, [
+          h('button', {
+            class: 'mini-btn warning',
+            onClick: () => tracker.toggleDungeonHidden(row.name)
+          }, '隐藏整组')
+        ])
       }
       return h('div', { class: 'action-group' }, [
-        h(
-          'button',
-          {
-            class: 'mini-btn',
-            onClick: () => openEdit(row)
-          },
-          '编辑'
-        ),
-        h(
-          'button',
-          {
-            class: 'mini-btn danger',
-            onClick: () => handleDelete(row)
-          },
-          '删除'
-        )
+        h('button', { class: 'mini-btn', onClick: () => openEdit(row) }, '编辑'),
+        h('button', { class: 'mini-btn warning', onClick: () => handleHide(row) }, '隐藏')
       ])
     }
   }
@@ -352,4 +337,42 @@ const rosterColumns: DataTableColumns<RosterRow> = [
   }
 ]
 </script>
+
+<style scoped>
+.dungeon-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+.dungeon-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-right: 12px;
+  border-right: 1px solid #e0e0e6;
+}
+.dungeon-tip {
+  color: #999;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.hidden-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hidden-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border: 1px solid #efeff5;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.hidden-item-label {
+  color: #333;
+}
+</style>
 

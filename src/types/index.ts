@@ -48,4 +48,5 @@ export interface StoreState {
   records: RecordItem[]
   columnConfig?: string[]
   wineBury?: WineBuryItem[]
+  dungeonOrder?: string[]
 }

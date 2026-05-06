@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.2.8</span>
+          <span class="header-version">v1.2.9</span>
         </div>
         <n-dropdown trigger="click" :options="settingOptions" @select="handleSettingSelect">
           <button class="gear-btn" type="button" aria-label="设置">⚙</button>
@@ -122,6 +122,14 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.2.9',
+    items: [
+      '副本管理新增手动排序功能（popover 拖拽 + 置顶/置底），隐藏副本不参与排序自动置底',
+      '副本管理「删除」改为「隐藏」，隐藏后不在列表显示；新增「已隐藏副本」面板可逐条恢复',
+      '角色管理新增排序 popover，与副本排序交互一致',
+    ]
+  },
   {
     version: 'v1.2.8',
     items: [

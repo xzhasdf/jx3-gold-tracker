@@ -6,6 +6,12 @@ declare module '*.vue' {
   export default component
 }
 
+declare module 'vuedraggable' {
+  import type { DefineComponent } from 'vue'
+  const component: DefineComponent<Record<string, unknown>, Record<string, unknown>, any>
+  export default component
+}
+
 interface Window {
   electronAPI?: {
     openDataDir: () => Promise<string>

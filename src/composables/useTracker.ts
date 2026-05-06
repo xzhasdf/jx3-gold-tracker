@@ -10,6 +10,7 @@ function makeId(prefix: string): string {
 
 const roles = ref<Role[]>([])
 const dungeons = ref<Dungeon[]>([])
+const dungeonOrder = ref<string[]>([])
 const records = ref<RecordItem[]>([])
 const columnConfig = ref<string[] | undefined>(undefined)
 const wineBury = ref<WineBuryItem[]>([])
@@ -32,7 +33,83 @@ const roleOptionsForAddRecord = computed(() => {
   })
   return [...pinned, ...normal]
 })
-const dungeonOptions = computed(() => dungeons.value.filter((d) => !d.hidden).map((d) => ({ label: `${d.players}${d.difficulty}${d.name}`, value: d.id })))
+function getDungeonGroupNames(dungeonList: Dungeon[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  dungeonList.forEach((d) => {
+    if (!seen.has(d.name)) {
+      seen.add(d.name)
+      result.push(d.name)
+    }
+  })
+  return result
+}
+
+interface OrderedDungeonGroup {
+  name: string
+  dungeons: Dungeon[]
+  allHidden: boolean
+}
+
+const orderedDungeonGroups = computed<OrderedDungeonGroup[]>(() => {
+  const groupMap = new Map<string, Dungeon[]>()
+  dungeons.value.forEach((d) => {
+    const list = groupMap.get(d.name) ?? []
+    list.push(d)
+    groupMap.set(d.name, list)
+  })
+  const groups = Array.from(groupMap.entries()).map(([name, list]) => ({
+    name,
+    dungeons: list,
+    allHidden: list.every((d) => d.hidden)
+  }))
+
+  const orderIdx = new Map(dungeonOrder.value.map((n, i) => [n, i]))
+  const visible = groups.filter((g) => !g.allHidden).sort((a, b) => {
+    const ai = orderIdx.has(a.name) ? orderIdx.get(a.name)! : Number.POSITIVE_INFINITY
+    const bi = orderIdx.has(b.name) ? orderIdx.get(b.name)! : Number.POSITIVE_INFINITY
+    if (ai !== bi) return ai - bi
+    return a.name.localeCompare(b.name, 'zh-CN')
+  })
+  const hidden = groups.filter((g) => g.allHidden).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+
+  return [...visible, ...hidden]
+})
+
+const dungeonOptions = computed(() => {
+  const result: { label: string; value: string }[] = []
+  orderedDungeonGroups.value.forEach((group) => {
+    if (group.allHidden) return
+    group.dungeons.filter((d) => !d.hidden).forEach((d) => {
+      result.push({ label: `${d.players}${d.difficulty}${d.name}`, value: d.id })
+    })
+  })
+  return result
+})
+
+function reconcileDungeonOrder() {
+  const visibleNames: string[] = []
+  const seen = new Set<string>()
+  const groupHiddenMap = new Map<string, boolean>()
+  dungeons.value.forEach((d) => {
+    const groupAllHidden = groupHiddenMap.has(d.name)
+      ? groupHiddenMap.get(d.name)!
+      : (() => {
+          const allHidden = dungeons.value.filter((x) => x.name === d.name).every((x) => x.hidden)
+          groupHiddenMap.set(d.name, allHidden)
+          return allHidden
+        })()
+    if (!seen.has(d.name)) {
+      seen.add(d.name)
+      if (!groupAllHidden) visibleNames.push(d.name)
+    }
+  })
+  const visibleSet = new Set(visibleNames)
+  const kept = dungeonOrder.value.filter((n) => visibleSet.has(n))
+  const keptSet = new Set(kept)
+  const appended = visibleNames.filter((n) => !keptSet.has(n))
+  dungeonOrder.value = [...kept, ...appended]
+}
 
 function normalizeRole(input: Role): Role {
   return {
@@ -78,10 +155,23 @@ function init() {
     }))
     persist()
   }
+
+  // 副本顺序：优先读持久化数据；缺失时根据现有 pinned + 字母序生成初始顺序（一次性迁移）
+  if (Array.isArray(state.dungeonOrder)) {
+    dungeonOrder.value = state.dungeonOrder.slice()
+  } else {
+    const groupNames = getDungeonGroupNames(dungeons.value)
+    const visible = groupNames.filter((n) => !dungeons.value.filter((d) => d.name === n).every((d) => d.hidden))
+    const pinnedNames = visible.filter((n) => dungeons.value.some((d) => d.name === n && d.pinned))
+    const others = visible.filter((n) => !pinnedNames.includes(n)).sort((a, b) => a.localeCompare(b, 'zh-CN'))
+    dungeonOrder.value = [...pinnedNames, ...others]
+    persist()
+  }
+  reconcileDungeonOrder()
 }
 
 function persist() {
-  saveState({ roles: roles.value, dungeons: dungeons.value, records: records.value, columnConfig: columnConfig.value, wineBury: wineBury.value })
+  saveState({ roles: roles.value, dungeons: dungeons.value, records: records.value, columnConfig: columnConfig.value, wineBury: wineBury.value, dungeonOrder: dungeonOrder.value })
 }
 
 function addRole(payload: Role): { ok: boolean; message?: string } {
@@ -147,6 +237,15 @@ function toggleRoleCdIgnore(id: string): { ok: boolean; message?: string } {
   return { ok: true }
 }
 
+function setRoleOrder(orderedIds: string[]): { ok: boolean } {
+  const idSet = new Set(orderedIds)
+  const ordered = orderedIds.map((id) => roles.value.find((r) => r.id === id)).filter(Boolean) as Role[]
+  const rest = roles.value.filter((r) => !idSet.has(r.id))
+  roles.value = [...ordered, ...rest]
+  persist()
+  return { ok: true }
+}
+
 function moveRole(id: string, direction: 'up' | 'down'): { ok: boolean } {
   const idx = roles.value.findIndex((r) => r.id === id)
   if (idx < 0) return { ok: false }
@@ -164,6 +263,7 @@ function addDungeon(payload: Omit<Dungeon, 'id' | 'followed'>): { ok: boolean; m
   const name = payload.name.trim()
   if (!name) return { ok: false, message: '副本名称不能为空' }
   dungeons.value.push({ ...payload, name, id: makeId('dungeon'), followed: false })
+  reconcileDungeonOrder()
   persist()
   return { ok: true }
 }
@@ -176,6 +276,7 @@ function updateDungeon(id: string, payload: Omit<Dungeon, 'id' | 'followed'>): {
   target.players = payload.players
   target.difficulty = payload.difficulty
   target.name = name
+  reconcileDungeonOrder()
   persist()
   return { ok: true }
 }
@@ -185,6 +286,7 @@ function deleteDungeon(id: string): { ok: boolean; message?: string } {
     return { ok: false, message: '该副本已有关联收支记录，无法删除' }
   }
   dungeons.value = dungeons.value.filter((d) => d.id !== id)
+  reconcileDungeonOrder()
   persist()
   return { ok: true }
 }
@@ -202,24 +304,36 @@ function toggleDungeonHidden(name: string): { ok: boolean; message?: string } {
   if (group.length === 0) return { ok: false, message: '副本不存在' }
   const isHidden = group.every((d) => d.hidden)
   group.forEach((d) => { d.hidden = !isHidden })
-  // 隐藏时取消置顶
-  if (!isHidden) {
-    group.forEach((d) => { d.pinned = false })
-  }
+  reconcileDungeonOrder()
   persist()
   return { ok: true }
 }
 
-function toggleDungeonPinned(name: string): { ok: boolean; message?: string } {
-  const group = dungeons.value.filter((d) => d.name === name)
-  if (group.length === 0) return { ok: false, message: '副本不存在' }
-  const isPinned = group.some((d) => d.pinned)
-  // 先取消所有置顶
-  dungeons.value.forEach((d) => { d.pinned = false })
-  // 如果之前没置顶，则置顶该组
-  if (!isPinned) {
-    group.forEach((d) => { d.pinned = true })
-  }
+function hideDungeon(id: string): { ok: boolean; message?: string } {
+  const target = dungeons.value.find((d) => d.id === id)
+  if (!target) return { ok: false, message: '副本不存在' }
+  target.hidden = true
+  reconcileDungeonOrder()
+  persist()
+  return { ok: true }
+}
+
+function unhideDungeon(id: string): { ok: boolean; message?: string } {
+  const target = dungeons.value.find((d) => d.id === id)
+  if (!target) return { ok: false, message: '副本不存在' }
+  target.hidden = false
+  reconcileDungeonOrder()
+  persist()
+  return { ok: true }
+}
+
+function setDungeonOrder(orderedNames: string[]): { ok: boolean } {
+  const visibleSet = new Set(
+    dungeonOrder.value
+  )
+  // 仅接受当前可见组中的名称，过滤掉非法项
+  dungeonOrder.value = orderedNames.filter((n) => visibleSet.has(n))
+  reconcileDungeonOrder()
   persist()
   return { ok: true }
 }
@@ -291,6 +405,8 @@ function importState(state: StoreState) {
   records.value = Array.isArray(state.records) ? state.records : []
   columnConfig.value = Array.isArray(state.columnConfig) ? state.columnConfig : undefined
   wineBury.value = Array.isArray(state.wineBury) ? state.wineBury : []
+  dungeonOrder.value = Array.isArray(state.dungeonOrder) ? state.dungeonOrder.slice() : []
+  reconcileDungeonOrder()
   persist()
 }
 
@@ -424,12 +540,17 @@ export function useTracker() {
     deleteRole,
     toggleRoleCdIgnore,
     moveRole,
+    setRoleOrder,
     addDungeon,
     updateDungeon,
     deleteDungeon,
     toggleDungeonFollow,
     toggleDungeonHidden,
-    toggleDungeonPinned,
+    hideDungeon,
+    unhideDungeon,
+    setDungeonOrder,
+    orderedDungeonGroups,
+    dungeonOrder,
     addRecord,
     updateRecord,
     deleteRecord,

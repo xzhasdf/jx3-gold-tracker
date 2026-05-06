@@ -10,7 +10,8 @@ function sanitizeState(input: unknown): StoreState {
     dungeons: Array.isArray(parsed?.dungeons) ? parsed!.dungeons : [],
     records: Array.isArray(parsed?.records) ? parsed!.records : [],
     columnConfig: Array.isArray(parsed?.columnConfig) ? parsed!.columnConfig : undefined,
-    wineBury: Array.isArray(parsed?.wineBury) ? parsed!.wineBury : undefined
+    wineBury: Array.isArray(parsed?.wineBury) ? parsed!.wineBury : undefined,
+    dungeonOrder: Array.isArray(parsed?.dungeonOrder) ? parsed!.dungeonOrder : undefined
   }
 }
 

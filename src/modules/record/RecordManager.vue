@@ -402,13 +402,20 @@ function buildDungeonCascaderOptions(hiddenInclusion: DungeonHiddenInclusion): C
       playerMap.set(dungeon.players, difficultyMap)
     })
 
-  // 每个叶子分组内：可见副本在前（保持原顺序），隐藏副本在后并按创建时间升序
+  // 每个叶子分组内：可见副本按用户手动顺序（dungeonOrder）排序，隐藏副本置底并按创建时间升序
+  const dungeonIdToName = new Map(tracker.dungeons.value.map((d) => [d.id, d.name]))
+  const orderIdx = new Map(tracker.dungeonOrder.value.map((n, i) => [n, i]))
   playerMap.forEach((difficultyMap) => {
     difficultyMap.forEach((names) => {
       names.sort((a, b) => {
         if (!!a.hidden !== !!b.hidden) return a.hidden ? 1 : -1
         if (a.hidden && b.hidden) return extractCreatedAt(a.value) - extractCreatedAt(b.value)
-        return 0
+        const an = dungeonIdToName.get(a.value) ?? ''
+        const bn = dungeonIdToName.get(b.value) ?? ''
+        const ai = orderIdx.has(an) ? orderIdx.get(an)! : Number.POSITIVE_INFINITY
+        const bi = orderIdx.has(bn) ? orderIdx.get(bn)! : Number.POSITIVE_INFINITY
+        if (ai !== bi) return ai - bi
+        return an.localeCompare(bn, 'zh-CN')
       })
     })
   })

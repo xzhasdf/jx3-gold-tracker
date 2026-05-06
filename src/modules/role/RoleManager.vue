@@ -34,7 +34,17 @@
       </div>
     </n-form>
     <n-divider />
-    <div style="text-align:right;font-size:12px;color:#666;margin-top:8px;margin-bottom:8px;">共 {{ roles.length }} 个角色</div>
+    <div class="role-toolbar">
+      <div class="role-toolbar-actions">
+        <n-popover trigger="click" placement="bottom-start" :show-arrow="false" style="width: 320px; padding: 10px">
+          <template #trigger>
+            <n-button text type="primary">排序</n-button>
+          </template>
+          <DungeonSortList :options="roleSortOptions" @change="handleRoleSortChange" />
+        </n-popover>
+      </div>
+      <div style="font-size:12px;color:#999;">共 {{ roles.length }} 个角色</div>
+    </div>
     <n-data-table :columns="columns" :data="roles" :pagination="false" />
   </n-card>
 
@@ -81,6 +91,7 @@ import { NTag, type DataTableColumns, useDialog } from 'naive-ui'
 import type { Role } from '../../types'
 import { useTracker } from '../../composables/useTracker'
 import SchoolBadge from '../shared/SchoolBadge.vue'
+import DungeonSortList from '../dungeon/DungeonSortList.vue'
 
 const tracker = useTracker()
 const dialog = useDialog()
@@ -106,6 +117,14 @@ const editForm = reactive({
 const serverOptions = tracker.servers.map((v) => ({ label: v, value: v }))
 const schoolOptions = tracker.schools.map((v) => ({ label: v, value: v }))
 const roles = computed(() => tracker.roles.value)
+
+const roleSortOptions = computed(() =>
+  tracker.roles.value.map((r) => ({ label: `${r.id}@${r.server}`, value: r.id }))
+)
+
+function handleRoleSortChange(ids: string[]) {
+  tracker.setRoleOrder(ids)
+}
 
 function renderSchoolOption(option: { label?: string | number }) {
   return h(SchoolBadge, { school: String(option.label ?? '') })
@@ -262,5 +281,16 @@ const columns: DataTableColumns<Role> = [
   color: #606266;
   font-size: 14px;
   min-width: 44px;
+}
+.role-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.role-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
 </style>
