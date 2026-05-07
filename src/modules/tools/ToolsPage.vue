@@ -19,6 +19,16 @@
         </div>
       </div>
     </n-card>
+
+    <n-card hoverable class="tool-card" @click="showDropDrawer = true">
+      <div class="tool-card-row">
+        <img :src="icon2589" class="tool-card-icon" />
+        <div>
+          <div class="tool-card-title">特殊掉落</div>
+          <div class="tool-card-desc">记录副本特殊掉落物品</div>
+        </div>
+      </div>
+    </n-card>
   </div>
 
   <n-modal v-model:show="showDivinationModal" preset="card" title="试炼翻牌占卜" style="max-width: 420px">
@@ -130,6 +140,81 @@
     </n-drawer-content>
   </n-drawer>
 
+  <n-drawer v-model:show="showDropDrawer" :width="720" placement="right">
+    <n-drawer-content title="特殊掉落">
+      <div class="drop-toolbar">
+        <n-button type="primary" size="small" @click="openAddDropModal">新增掉落</n-button>
+      </div>
+      <div class="drop-tip">提示：右键掉落卡片可编辑</div>
+      <n-divider style="margin: 12px 0" />
+      <div v-if="groupedDrops.length === 0" class="drop-empty">暂无掉落记录</div>
+      <div v-for="group in groupedDrops" :key="group.label" class="drop-group">
+        <div class="drop-group-title">{{ group.label }}</div>
+        <div class="drop-grid">
+          <div
+            v-for="item in group.items"
+            :key="item.id"
+            class="drop-item"
+            @contextmenu.prevent="onDropContextMenu($event, item)"
+          >
+            <div class="drop-item-icon">
+              <img :src="resolveDropIcon(item.iconBase64)" />
+            </div>
+            <span class="drop-item-name">{{ item.itemName }}</span>
+            <span v-if="!item.matchAll" class="drop-item-close" title="删除" @click="handleDeleteDrop(item.id)">&times;</span>
+          </div>
+        </div>
+      </div>
+      <n-dropdown
+        :show="dropMenuShow"
+        :options="dropMenuOptions"
+        :x="dropMenuX"
+        :y="dropMenuY"
+        placement="bottom-start"
+        @select="onDropMenuSelect"
+        @clickoutside="dropMenuShow = false"
+      />
+    </n-drawer-content>
+  </n-drawer>
+
+  <n-modal v-model:show="showAddDropModal" preset="card" :title="editingDropId ? '编辑掉落' : '新增掉落'" style="max-width: 460px">
+    <n-form label-placement="top">
+      <n-form-item label="副本" required>
+        <n-cascader
+          :value="dropDungeonSelectValue"
+          :options="dropDungeonCascaderOptions"
+          placeholder="请选择人数 / 难度 / 副本"
+          check-strategy="child"
+          expand-trigger="hover"
+          filterable
+          clearable
+          @update:value="onDropDungeonSelect"
+        />
+      </n-form-item>
+      <n-form-item label="掉落名称" required>
+        <n-input v-model:value="dropForm.itemName" />
+      </n-form-item>
+      <n-form-item label="图片（选填）">
+        <div class="drop-upload-row">
+          <label class="drop-upload-btn">
+            <input type="file" accept="image/*" @change="handleIconChange" hidden />
+            选择图片
+          </label>
+          <div v-if="dropForm.iconBase64" class="drop-upload-preview">
+            <img :src="resolveDropIcon(dropForm.iconBase64)" />
+            <span class="drop-upload-clear" @click="dropForm.iconBase64 = ''">&times;</span>
+          </div>
+        </div>
+      </n-form-item>
+    </n-form>
+    <template #footer>
+      <n-space justify="end">
+        <n-button @click="showAddDropModal = false">取消</n-button>
+        <n-button type="primary" @click="handleAddDrop">确定</n-button>
+      </n-space>
+    </template>
+  </n-modal>
+
   <n-modal v-model:show="showAddModal" preset="card" title="新增藏酒" style="max-width: 420px">
     <n-form label-placement="top">
       <n-form-item :show-label="false">
@@ -165,7 +250,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, reactive, ref, watch } from 'vue'
+import { computed, h, nextTick, reactive, ref, watch } from 'vue'
+import { useDialog } from 'naive-ui'
 import { useWineBury } from '../../composables/useWineBury'
 import { useTracker } from '../../composables/useTracker'
 import SchoolBadge from '../shared/SchoolBadge.vue'
@@ -176,6 +262,8 @@ import icon1396 from '../../assets/icon/1396.png'
 import icon1400 from '../../assets/icon/1400.png'
 import icon10134 from '../../assets/icon/10134.png'
 import icon13867 from '../../assets/icon/13867.png'
+import icon2589 from '../../assets/icon/2589.png'
+import { resolveDropIcon } from '../../utils/specialDrop'
 import iconNum1 from '../../assets/icon/7674.png'
 import iconNum2 from '../../assets/icon/7676.png'
 import iconNum3 from '../../assets/icon/7673.png'
@@ -192,10 +280,197 @@ import iconGua8 from '../../assets/icon/20108.png'
 
 const wineBury = useWineBury()
 const tracker = useTracker()
+const dialog = useDialog()
 
 const showWineDrawer = ref(false)
 const showAddModal = ref(false)
+const showDropDrawer = ref(false)
+const showAddDropModal = ref(false)
+const editingDropId = ref<string | null>(null)
 const filterRoleId = ref<string | null>(null)
+
+const dropMenuShow = ref(false)
+const dropMenuX = ref(0)
+const dropMenuY = ref(0)
+const dropMenuOptions = [{ label: '编辑', key: 'edit' }]
+const dropMenuTargetId = ref<string | null>(null)
+
+const dropDungeonCascaderOptions = computed(() => {
+  const playerOrder: Record<string, number> = { '10人': 0, '25人': 1 }
+  const difficultyOrder: Record<string, number> = { '普通': 0, '英雄': 1, '挑战': 2 }
+  const playerMap = new Map<string, Map<string, { label: string; value: string }[]>>()
+  tracker.dungeons.value
+    .filter((d) => !d.hidden)
+    .forEach((d) => {
+      const diffMap = playerMap.get(d.players) ?? new Map<string, { label: string; value: string }[]>()
+      const list = diffMap.get(d.difficulty) ?? []
+      list.push({ label: d.name, value: d.id })
+      diffMap.set(d.difficulty, list)
+      playerMap.set(d.players, diffMap)
+    })
+  return Array.from(playerMap.entries())
+    .sort(([a], [b]) => (playerOrder[a] ?? 99) - (playerOrder[b] ?? 99))
+    .map(([players, diffMap]) => ({
+      label: players,
+      value: players,
+      children: Array.from(diffMap.entries())
+        .sort(([a], [b]) => (difficultyOrder[a] ?? 99) - (difficultyOrder[b] ?? 99))
+        .map(([difficulty, items]) => ({
+          label: difficulty,
+          value: `${players}-${difficulty}`,
+          children: items
+        }))
+    }))
+})
+const dropDungeonSelectValue = ref<string | null>(null)
+
+function onDropDungeonSelect(value: string | null) {
+  dropDungeonSelectValue.value = value
+  if (value) {
+    const d = tracker.dungeons.value.find((x) => x.id === value)
+    if (d) {
+      dropForm.players = d.players
+      dropForm.difficulty = d.difficulty
+      dropForm.dungeonName = d.name
+    }
+  } else {
+    dropForm.dungeonName = ''
+  }
+}
+
+const dropForm = reactive<{
+  players: '10人' | '25人'
+  difficulty: '普通' | '英雄' | '挑战'
+  dungeonName: string
+  itemName: string
+  iconBase64: string
+}>({
+  players: '10人',
+  difficulty: '普通',
+  dungeonName: '',
+  itemName: '',
+  iconBase64: ''
+})
+
+interface DropGroup {
+  label: string
+  items: typeof tracker.specialDrops.value
+}
+
+const groupedDrops = computed<DropGroup[]>(() => {
+  const map = new Map<string, typeof tracker.specialDrops.value>()
+  const all: typeof tracker.specialDrops.value = []
+  tracker.specialDrops.value.forEach((d) => {
+    if (d.matchAll) {
+      all.push(d)
+      return
+    }
+    const label = `${d.dungeonPlayers}${d.dungeonDifficulty}${d.dungeonName}`
+    const list = map.get(label) ?? []
+    list.push(d)
+    map.set(label, list)
+  })
+  const groups: DropGroup[] = Array.from(map.entries())
+    .sort(([a], [b]) => a.localeCompare(b, 'zh-CN'))
+    .map(([label, items]) => ({ label, items }))
+  if (all.length > 0) {
+    groups.unshift({ label: '通用掉落', items: all })
+  }
+  return groups
+})
+
+function openAddDropModal() {
+  editingDropId.value = null
+  dropForm.players = '10人'
+  dropForm.difficulty = '普通'
+  dropForm.dungeonName = ''
+  dropForm.itemName = ''
+  dropForm.iconBase64 = ''
+  dropDungeonSelectValue.value = null
+  showAddDropModal.value = true
+}
+
+function openEditDropModal(id: string) {
+  const target = tracker.specialDrops.value.find((d) => d.id === id)
+  if (!target) return
+  editingDropId.value = id
+  dropForm.players = target.dungeonPlayers
+  dropForm.difficulty = target.dungeonDifficulty
+  dropForm.dungeonName = target.dungeonName
+  dropForm.itemName = target.itemName
+  dropForm.iconBase64 = target.iconBase64 ?? ''
+  const match = tracker.dungeons.value.find((d) =>
+    !d.hidden &&
+    d.players === target.dungeonPlayers &&
+    d.difficulty === target.dungeonDifficulty &&
+    d.name === target.dungeonName
+  )
+  dropDungeonSelectValue.value = match?.id ?? null
+  showAddDropModal.value = true
+}
+
+function onDropContextMenu(e: MouseEvent, item: { id: string; matchAll?: boolean }) {
+  if (item.matchAll) return
+  dropMenuTargetId.value = item.id
+  dropMenuX.value = e.clientX
+  dropMenuY.value = e.clientY
+  dropMenuShow.value = false
+  nextTick(() => { dropMenuShow.value = true })
+}
+
+function onDropMenuSelect(key: string) {
+  dropMenuShow.value = false
+  if (key === 'edit' && dropMenuTargetId.value) {
+    openEditDropModal(dropMenuTargetId.value)
+  }
+}
+
+function handleIconChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => {
+    dropForm.iconBase64 = String(reader.result ?? '')
+  }
+  reader.readAsDataURL(file)
+  input.value = ''
+}
+
+function handleAddDrop() {
+  const payload = {
+    dungeonPlayers: dropForm.players,
+    dungeonDifficulty: dropForm.difficulty,
+    dungeonName: dropForm.dungeonName,
+    itemName: dropForm.itemName,
+    iconBase64: dropForm.iconBase64 || undefined
+  }
+  const result = editingDropId.value
+    ? tracker.updateSpecialDrop(editingDropId.value, payload)
+    : tracker.addSpecialDrop(payload)
+  if (!result.ok) {
+    dialog.warning({
+      title: '提示',
+      content: result.message ?? '操作失败',
+      positiveText: '知道了'
+    })
+    return
+  }
+  showAddDropModal.value = false
+  editingDropId.value = null
+}
+
+function handleDeleteDrop(id: string) {
+  const drop = tracker.specialDrops.value.find((d) => d.id === id)
+  if (!drop) return
+  dialog.error({
+    title: '删除确认',
+    content: `确认删除「${drop.dungeonPlayers}${drop.dungeonDifficulty}${drop.dungeonName} - ${drop.itemName}」吗？该操作不可恢复。`,
+    positiveText: '确认删除',
+    negativeText: '取消',
+    onPositiveClick: () => tracker.deleteSpecialDrop(id)
+  })
+}
 
 const filteredItems = computed(() => {
   if (!filterRoleId.value) return wineBury.items.value
@@ -659,5 +934,133 @@ function formatTime(ts: number): string {
   height: 32px;
   object-fit: contain;
   border-radius: 4px;
+}
+
+.drop-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.drop-tip {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #999;
+}
+.drop-empty {
+  color: #999;
+  font-size: 13px;
+  text-align: center;
+  padding: 24px 0;
+}
+.drop-group {
+  margin-bottom: 16px;
+}
+.drop-group-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 8px;
+}
+.drop-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.drop-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 24px 8px 8px;
+  border: 1px solid #efeff5;
+  border-radius: 4px;
+  font-size: 13px;
+  background: #fff;
+}
+.drop-item-icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  background: #f5f5f7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.drop-item-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.drop-item-icon-placeholder {
+  font-size: 11px;
+  color: #c0c4cc;
+}
+.drop-item-name {
+  flex: 1;
+  word-break: break-all;
+}
+.drop-item-close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 16px;
+  color: #c0c4cc;
+  cursor: pointer;
+  line-height: 1;
+}
+.drop-item-close:hover {
+  color: #d03050;
+}
+
+.drop-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.drop-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  padding: 0 14px;
+  font-size: 13px;
+  color: #18a058;
+  border: 1px solid #18a058;
+  border-radius: 4px;
+  cursor: pointer;
+  background: #fff;
+}
+.drop-upload-btn:hover {
+  background: #18a05810;
+}
+.drop-upload-preview {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border: 1px solid #efeff5;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.drop-upload-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.drop-upload-clear {
+  position: absolute;
+  top: 0;
+  right: 2px;
+  font-size: 14px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  line-height: 14px;
+  text-align: center;
+  cursor: pointer;
 }
 </style>

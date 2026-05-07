@@ -62,7 +62,10 @@
     <div v-else class="hidden-list">
       <div v-for="d in hiddenDungeons" :key="d.id" class="hidden-item">
         <span class="hidden-item-label">{{ d.players }}{{ d.difficulty }}{{ d.name }}</span>
-        <n-button size="tiny" @click="tracker.unhideDungeon(d.id)">显示</n-button>
+        <div class="hidden-item-actions">
+          <n-button size="tiny" @click="tracker.unhideDungeon(d.id)">显示</n-button>
+          <n-button size="tiny" type="error" ghost @click="handleDelete(d)">删除</n-button>
+        </div>
       </div>
     </div>
   </n-modal>
@@ -232,6 +235,23 @@ function handleHide(row: DungeonTableRow) {
   tracker.hideDungeon(row.id)
 }
 
+function handleDelete(d: { id: string; players: string; difficulty: string; name: string }) {
+  const linked = tracker.records.value.filter((r) => r.dungeonId === d.id).length
+  const warning = linked > 0
+    ? `该副本已有 ${linked} 条历史记录，删除后这些记录的副本名称将显示为「副本已删除」。`
+    : '该副本暂无历史记录。'
+  dialog.error({
+    title: '删除确认',
+    content: () => h('div', { style: 'white-space: pre-wrap; line-height: 1.6;' },
+      `确认删除副本「${d.players}${d.difficulty}${d.name}」吗？\n\n${warning}\n\n该操作不可恢复，请谨慎操作。`),
+    positiveText: '确认删除',
+    negativeText: '取消',
+    onPositiveClick: () => {
+      tracker.deleteDungeon(d.id)
+    }
+  })
+}
+
 function renderDungeonCdPopover(dungeonId: string) {
   const cdStatus = tracker.getWeeklyCdStatusByRole()
   const notCleared: { id: string; server: string; school: string }[] = []
@@ -373,6 +393,10 @@ const rosterColumns: DataTableColumns<RosterRow> = [
 }
 .hidden-item-label {
   color: #333;
+}
+.hidden-item-actions {
+  display: flex;
+  gap: 6px;
 }
 </style>
 

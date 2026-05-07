@@ -125,6 +125,24 @@
           :style="fieldStyle"
         />
       </n-form-item>
+      <n-form-item v-if="matchedAddDrops.length > 0" label="特殊掉落" class="form-item-drops">
+        <div class="drop-stack">
+          <n-checkbox v-model:checked="addForm.hasSpecialDrop">本次有特殊掉落</n-checkbox>
+          <div v-if="addForm.hasSpecialDrop" class="drop-checkbox-group">
+            <n-checkbox
+              v-for="d in matchedAddDrops"
+              :key="d.id"
+              :checked="addForm.specialDropIds.includes(d.id)"
+              @update:checked="(v: boolean) => toggleAddDrop(d.id, v)"
+            >
+              <span class="drop-checkbox-label">
+                <img :src="resolveDropIcon(d.iconBase64)" class="drop-checkbox-icon" />
+                {{ d.itemName }}
+              </span>
+            </n-checkbox>
+          </div>
+        </div>
+      </n-form-item>
       <n-form-item label="收入">
         <n-space align="center" :wrap-item="false">
           <n-input-number v-model:value="addForm.incomeGold" :min="0" :show-button="false" :style="fieldStyle" />
@@ -182,6 +200,29 @@
       </n-form-item>
       <n-form-item label="副本">
         <n-cascader v-model:value="editForm.dungeonId" :options="editDungeonCascaderOptions" :render-label="renderDungeonCascaderLabel" check-strategy="child" filterable expand-trigger="hover" :style="fieldStyle" />
+      </n-form-item>
+      <n-form-item v-if="matchedEditDrops.length > 0 || editOrphanDropIds.length > 0" label="特殊掉落" class="form-item-drops">
+        <div class="drop-stack">
+          <n-checkbox v-model:checked="editForm.hasSpecialDrop">本次有特殊掉落</n-checkbox>
+          <template v-if="editForm.hasSpecialDrop">
+            <div v-if="matchedEditDrops.length > 0" class="drop-checkbox-group">
+              <n-checkbox
+                v-for="d in matchedEditDrops"
+                :key="d.id"
+                :checked="editForm.specialDropIds.includes(d.id)"
+                @update:checked="(v: boolean) => toggleEditDrop(d.id, v)"
+              >
+                <span class="drop-checkbox-label">
+                  <img :src="resolveDropIcon(d.iconBase64)" class="drop-checkbox-icon" />
+                  {{ d.itemName }}
+                </span>
+              </n-checkbox>
+            </div>
+            <div v-if="editOrphanDropIds.length > 0" class="orphan-drops">
+              <span v-for="id in editOrphanDropIds" :key="id" class="orphan-drop-tag">掉落已删除</span>
+            </div>
+          </template>
+        </div>
       </n-form-item>
       <n-form-item label="收入">
         <n-input-number v-model:value="editForm.incomeGold" :min="0" :show-button="false" :style="fieldStyle" />
@@ -263,6 +304,7 @@ import { getTodayRange, getYesterdayRange, toYmd } from '../../utils/date'
 import { splitGold, toGold } from '../../utils/money'
 import MoneyValue from '../shared/MoneyValue.vue'
 import RecordOcrModal from './RecordOcrModal.vue'
+import { resolveDropIcon } from '../../utils/specialDrop'
 import SchoolBadge from '../shared/SchoolBadge.vue'
 import type { OcrFillResult } from './ocr'
 
@@ -302,7 +344,9 @@ const addForm = reactive({
   leaderId: '',
   remark: '',
   blacklisted: false,
-  blackPerson: ''
+  blackPerson: '',
+  hasSpecialDrop: false,
+  specialDropIds: [] as string[]
 })
 
 const editForm = reactive({
@@ -315,8 +359,52 @@ const editForm = reactive({
   leaderId: '',
   remark: '',
   blacklisted: false,
-  blackPerson: ''
+  blackPerson: '',
+  hasSpecialDrop: false,
+  specialDropIds: [] as string[]
 })
+
+function getMatchedSpecialDrops(dungeonId: string | null) {
+  if (!dungeonId) return []
+  const dungeon = tracker.dungeons.value.find((d) => d.id === dungeonId)
+  if (!dungeon) return []
+  return tracker.specialDrops.value
+    .filter((drop) => {
+      if (drop.matchAll) {
+        if (drop.matchPlayers && drop.matchPlayers !== dungeon.players) return false
+        return true
+      }
+      return drop.dungeonPlayers === dungeon.players &&
+        drop.dungeonDifficulty === dungeon.difficulty &&
+        drop.dungeonName === dungeon.name
+    })
+    .sort((a, b) => Number(Boolean(b.matchAll)) - Number(Boolean(a.matchAll)))
+}
+
+const matchedAddDrops = computed(() => getMatchedSpecialDrops(addForm.dungeonId))
+const matchedEditDrops = computed(() => getMatchedSpecialDrops(editForm.dungeonId))
+const specialDropMap = computed(() => new Map(tracker.specialDrops.value.map((d) => [d.id, d])))
+
+const editOrphanDropIds = computed(() => {
+  const allIds = new Set(tracker.specialDrops.value.map((d) => d.id))
+  return editForm.specialDropIds.filter((id) => !allIds.has(id))
+})
+
+function toggleAddDrop(id: string, checked: boolean) {
+  if (checked) {
+    if (!addForm.specialDropIds.includes(id)) addForm.specialDropIds.push(id)
+  } else {
+    addForm.specialDropIds = addForm.specialDropIds.filter((x) => x !== id)
+  }
+}
+
+function toggleEditDrop(id: string, checked: boolean) {
+  if (checked) {
+    if (!editForm.specialDropIds.includes(id)) editForm.specialDropIds.push(id)
+  } else {
+    editForm.specialDropIds = editForm.specialDropIds.filter((x) => x !== id)
+  }
+}
 
 const roleOptions = computed(() => tracker.roleOptions.value)
 const roleOptionsForAddRecord = computed(() => tracker.roleOptionsForAddRecord.value)
@@ -638,6 +726,8 @@ function openAddModal() {
   tempRoleCandidateServer.value = tracker.servers[0]
   tempRoleCandidateSchool.value = tracker.schools[0]
   addForm.blackPerson = ''
+  addForm.hasSpecialDrop = false
+  addForm.specialDropIds = []
   showAdd.value = true
 }
 
@@ -695,6 +785,9 @@ function createRecord() {
   const proxyRatio = effectiveAddProxyRatio.value
   const adjustedIncome = selectedRole?.isProxyClear ? Math.round((rawIncome * (proxyRatio ?? 100)) / 100) : rawIncome
 
+  const dropIds = addForm.hasSpecialDrop
+    ? addForm.specialDropIds.filter((id) => matchedAddDrops.value.some((d) => d.id === id))
+    : []
   tracker.addRecord({
     roleId,
     dungeonId: addForm.dungeonId,
@@ -705,7 +798,8 @@ function createRecord() {
     leaderId: addForm.leaderId,
     remark: addForm.remark,
     blacklisted: addForm.blacklisted,
-    blackPerson: addForm.blackPerson
+    blackPerson: addForm.blackPerson,
+    specialDropIds: dropIds
   })
   closeAddModal()
 }
@@ -780,10 +874,18 @@ function openEdit(row: (typeof rows.value)[number]) {
   editForm.remark = row.remark || ''
   editForm.blacklisted = Boolean(row.blacklisted)
   editForm.blackPerson = row.blackPerson || ''
+  const existingDrops = Array.isArray(row.specialDropIds) ? row.specialDropIds : []
+  editForm.specialDropIds = existingDrops.slice()
+  editForm.hasSpecialDrop = existingDrops.length > 0
   showEdit.value = true
 }
 
 function saveEdit() {
+  let dropIds: string[] = []
+  if (editForm.hasSpecialDrop) {
+    const matched = editForm.specialDropIds.filter((id) => matchedEditDrops.value.some((d) => d.id === id))
+    dropIds = [...matched, ...editOrphanDropIds.value]
+  }
   tracker.updateRecord(editingId.value, {
     date: editForm.date ? toYmd(editForm.date) : undefined,
     roleId: editForm.roleId || undefined,
@@ -794,7 +896,8 @@ function saveEdit() {
     leaderId: editForm.leaderId,
     remark: editForm.remark,
     blacklisted: editForm.blacklisted,
-    blackPerson: editForm.blackPerson
+    blackPerson: editForm.blackPerson,
+    specialDropIds: dropIds
   })
   showEdit.value = false
 }
@@ -855,7 +958,30 @@ const allColumns = computed<DataTableColumns<(typeof rows.value)[number]>>(() =>
       ])
     }
   },
-  { title: '副本名称', key: 'dungeonText', width: 180, fixed: 'left', ellipsis: true, render: (row) => h('span', { style: 'white-space:nowrap;' }, row.dungeonText) },
+  {
+    title: '副本名称',
+    key: 'dungeonText',
+    width: 220,
+    fixed: 'left',
+    render: (row) => {
+      const ids = row.specialDropIds ?? []
+      return h('div', { style: 'display:flex;flex-direction:column;gap:4px;align-items:flex-start;' }, [
+        h('div', { style: 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;' }, row.dungeonText),
+        ids.length > 0
+          ? h('div', { style: 'display:flex;flex-direction:column;gap:4px;' }, ids.map((id: string) => {
+              const drop = specialDropMap.value.get(id)
+              if (!drop) {
+                return h('span', { style: 'font-size:11px;color:#999;text-decoration:line-through;padding:0 4px;border:1px dashed #d9d9d9;border-radius:3px;white-space:nowrap;align-self:flex-start;' }, '掉落已删除')
+              }
+              return h('span', { style: 'display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#555;' }, [
+                h('img', { src: resolveDropIcon(drop.iconBase64), style: 'width:16px;height:16px;border-radius:3px;object-fit:cover;flex-shrink:0;' }),
+                h('span', { style: 'white-space:nowrap;' }, drop.itemName)
+              ])
+            }))
+          : null
+      ])
+    }
+  },
   {
     title: '收入',
     key: 'income',
@@ -992,5 +1118,97 @@ const columns = computed(() =>
 .proxy-feedback {
   font-size: 12px;
   color: #d03050;
+}
+
+.drop-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.drop-checkbox-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px 8px;
+}
+.drop-checkbox-group :deep(.n-checkbox) {
+  align-items: center;
+  min-width: 0;
+}
+.drop-checkbox-group :deep(.n-checkbox__label) {
+  padding-left: 6px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.drop-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.drop-checkbox-icon {
+  width: 18px;
+  height: 18px;
+  object-fit: cover;
+  border-radius: 3px;
+}
+
+.orphan-drops {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.orphan-drop-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: #999;
+  background: #f5f5f7;
+  border: 1px dashed #d9d9d9;
+  border-radius: 3px;
+  text-decoration: line-through;
+}
+
+.record-dungeon-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+.record-dungeon-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.record-drop-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.record-drop-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #555;
+}
+.record-drop-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+.record-drop-name {
+  white-space: nowrap;
+}
+.record-drop-orphan {
+  font-size: 11px;
+  color: #999;
+  text-decoration: line-through;
+  padding: 0 4px;
+  border: 1px dashed #d9d9d9;
+  border-radius: 3px;
+  white-space: nowrap;
 }
 </style>

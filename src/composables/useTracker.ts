@@ -1,8 +1,9 @@
 import { computed, ref } from 'vue'
 import { DEFAULT_DUNGEONS, DIFFICULTY_OPTIONS, FIXED_DUNGEON_LABEL, PLAYER_OPTIONS, SCHOOLS, SERVERS } from '../constants/game'
+import { DEFAULT_SPECIAL_DROPS } from '../utils/specialDrop'
 import { loadState, saveState } from '../services/storage'
 import { getCurrentMonthRange, getCurrentWeekRange, toYmd } from '../utils/date'
-import type { Dungeon, RecordItem, Role, StoreState, WineBuryItem } from '../types'
+import type { Dungeon, RecordItem, Role, SpecialDrop, StoreState, WineBuryItem } from '../types'
 
 function makeId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -14,6 +15,7 @@ const dungeonOrder = ref<string[]>([])
 const records = ref<RecordItem[]>([])
 const columnConfig = ref<string[] | undefined>(undefined)
 const wineBury = ref<WineBuryItem[]>([])
+const specialDrops = ref<SpecialDrop[]>([])
 const newlyAddedRoleIds = ref<Set<string>>(new Set())
 
 const roleMap = computed(() => new Map(roles.value.map((r) => [r.id, r])))
@@ -145,6 +147,44 @@ function init() {
     } catch { /* ignore */ }
   }
 
+  specialDrops.value = Array.isArray(state.specialDrops) ? state.specialDrops : []
+
+  // 清理已从 DEFAULT_SPECIAL_DROPS 移除的旧默认条目
+  const validDefaultNames = new Set(DEFAULT_SPECIAL_DROPS.map((d) => d.itemName))
+  let dropsTouched = false
+  const before = specialDrops.value.length
+  specialDrops.value = specialDrops.value.filter((d) => !d.matchAll || validDefaultNames.has(d.itemName))
+  if (specialDrops.value.length !== before) dropsTouched = true
+
+  // 补齐缺失的默认通用掉落（按 itemName 匹配，置于列表前部）
+  const missingDefaults = DEFAULT_SPECIAL_DROPS.filter(
+    (d) => !specialDrops.value.some((existing) => existing.matchAll && existing.itemName === d.itemName)
+  )
+  if (missingDefaults.length > 0) {
+    const seeded: SpecialDrop[] = missingDefaults.map((d) => ({
+      id: makeId('drop_default'),
+      dungeonPlayers: '10人',
+      dungeonDifficulty: '普通',
+      dungeonName: '通用',
+      itemName: d.itemName,
+      iconBase64: `preset:${d.iconKey}`,
+      matchAll: true,
+      ...(d.matchPlayers ? { matchPlayers: d.matchPlayers } : {}),
+    }))
+    specialDrops.value = [...seeded, ...specialDrops.value]
+    dropsTouched = true
+  }
+  // 已存在的默认掉落，按最新配置补齐 matchPlayers 限制
+  DEFAULT_SPECIAL_DROPS.forEach((def) => {
+    if (!def.matchPlayers) return
+    const existing = specialDrops.value.find((d) => d.matchAll && d.itemName === def.itemName)
+    if (existing && existing.matchPlayers !== def.matchPlayers) {
+      existing.matchPlayers = def.matchPlayers
+      dropsTouched = true
+    }
+  })
+  if (dropsTouched) persist()
+
   if (dungeons.value.length === 0) {
     dungeons.value = DEFAULT_DUNGEONS.map((item) => ({
       id: makeId('dungeon_default'),
@@ -171,7 +211,7 @@ function init() {
 }
 
 function persist() {
-  saveState({ roles: roles.value, dungeons: dungeons.value, records: records.value, columnConfig: columnConfig.value, wineBury: wineBury.value, dungeonOrder: dungeonOrder.value })
+  saveState({ roles: roles.value, dungeons: dungeons.value, records: records.value, columnConfig: columnConfig.value, wineBury: wineBury.value, dungeonOrder: dungeonOrder.value, specialDrops: specialDrops.value })
 }
 
 function addRole(payload: Role): { ok: boolean; message?: string } {
@@ -282,9 +322,6 @@ function updateDungeon(id: string, payload: Omit<Dungeon, 'id' | 'followed'>): {
 }
 
 function deleteDungeon(id: string): { ok: boolean; message?: string } {
-  if (records.value.some((r) => r.dungeonId === id)) {
-    return { ok: false, message: '该副本已有关联收支记录，无法删除' }
-  }
   dungeons.value = dungeons.value.filter((d) => d.id !== id)
   reconcileDungeonOrder()
   persist()
@@ -349,6 +386,7 @@ function addRecord(payload: {
   remark?: string
   blacklisted?: boolean
   blackPerson?: string
+  specialDropIds?: string[]
 }) {
   records.value.push({
     id: makeId('record'),
@@ -362,14 +400,15 @@ function addRecord(payload: {
     leaderId: payload.leaderId?.trim() || undefined,
     remark: payload.remark?.trim() || undefined,
     blacklisted: Boolean(payload.blacklisted),
-    blackPerson: payload.blackPerson?.trim() || undefined
+    blackPerson: payload.blackPerson?.trim() || undefined,
+    specialDropIds: payload.specialDropIds && payload.specialDropIds.length > 0 ? payload.specialDropIds.slice() : undefined
   })
   persist()
 }
 
 function updateRecord(
   id: string,
-  payload: { date?: string; roleId?: string; dungeonId?: string; income: number; expense: number; groupBrand?: string; leaderId?: string; remark?: string; blacklisted?: boolean; blackPerson?: string }
+  payload: { date?: string; roleId?: string; dungeonId?: string; income: number; expense: number; groupBrand?: string; leaderId?: string; remark?: string; blacklisted?: boolean; blackPerson?: string; specialDropIds?: string[] }
 ) {
   const target = records.value.find((r) => r.id === id)
   if (!target) return
@@ -383,12 +422,56 @@ function updateRecord(
   target.remark = payload.remark?.trim() || undefined
   target.blacklisted = Boolean(payload.blacklisted)
   target.blackPerson = payload.blackPerson?.trim() || undefined
+  target.specialDropIds = payload.specialDropIds && payload.specialDropIds.length > 0 ? payload.specialDropIds.slice() : undefined
   persist()
 }
 
 function deleteRecord(id: string) {
   records.value = records.value.filter((r) => r.id !== id)
   persist()
+}
+
+function addSpecialDrop(payload: Omit<SpecialDrop, 'id'>): { ok: boolean; message?: string } {
+  const itemName = payload.itemName.trim()
+  const dungeonName = payload.dungeonName.trim()
+  if (!dungeonName) return { ok: false, message: '副本名称不能为空' }
+  if (!itemName) return { ok: false, message: '掉落名称不能为空' }
+  specialDrops.value.push({
+    id: makeId('drop'),
+    dungeonPlayers: payload.dungeonPlayers,
+    dungeonDifficulty: payload.dungeonDifficulty,
+    dungeonName,
+    itemName,
+    iconBase64: payload.iconBase64
+  })
+  persist()
+  return { ok: true }
+}
+
+function deleteSpecialDrop(id: string): { ok: boolean; message?: string } {
+  const target = specialDrops.value.find((d) => d.id === id)
+  if (!target) return { ok: false }
+  if (target.matchAll) return { ok: false, message: '默认掉落不可删除' }
+  specialDrops.value = specialDrops.value.filter((d) => d.id !== id)
+  persist()
+  return { ok: true }
+}
+
+function updateSpecialDrop(id: string, payload: Omit<SpecialDrop, 'id'>): { ok: boolean; message?: string } {
+  const target = specialDrops.value.find((d) => d.id === id)
+  if (!target) return { ok: false, message: '掉落不存在' }
+  if (target.matchAll) return { ok: false, message: '默认掉落不可编辑' }
+  const itemName = payload.itemName.trim()
+  const dungeonName = payload.dungeonName.trim()
+  if (!dungeonName) return { ok: false, message: '副本名称不能为空' }
+  if (!itemName) return { ok: false, message: '掉落名称不能为空' }
+  target.dungeonPlayers = payload.dungeonPlayers
+  target.dungeonDifficulty = payload.dungeonDifficulty
+  target.dungeonName = dungeonName
+  target.itemName = itemName
+  target.iconBase64 = payload.iconBase64
+  persist()
+  return { ok: true }
 }
 
 function setColumnConfig(keys: string[]) {
@@ -405,6 +488,7 @@ function importState(state: StoreState) {
   records.value = Array.isArray(state.records) ? state.records : []
   columnConfig.value = Array.isArray(state.columnConfig) ? state.columnConfig : undefined
   wineBury.value = Array.isArray(state.wineBury) ? state.wineBury : []
+  specialDrops.value = Array.isArray(state.specialDrops) ? state.specialDrops : []
   dungeonOrder.value = Array.isArray(state.dungeonOrder) ? state.dungeonOrder.slice() : []
   reconcileDungeonOrder()
   persist()
@@ -451,7 +535,7 @@ function queryRecords(filters: { roleId: string | null; dungeonId: string | null
       return {
         ...r,
         roleText: role ? `${role.id}（${role.server}/${role.school}）` : '已删除角色',
-        dungeonText: FIXED_DUNGEON_LABEL[r.dungeonId] ?? (dungeon ? `${dungeon.players}${dungeon.difficulty}${dungeon.name}` : '已删除副本'),
+        dungeonText: FIXED_DUNGEON_LABEL[r.dungeonId] ?? (dungeon ? `${dungeon.players}${dungeon.difficulty}${dungeon.name}` : '副本已删除'),
         subtotal: r.income - r.expense
       }
     })
@@ -534,6 +618,10 @@ export function useTracker() {
     columnConfig,
     setColumnConfig,
     wineBury,
+    specialDrops,
+    addSpecialDrop,
+    deleteSpecialDrop,
+    updateSpecialDrop,
     persist,
     addRole,
     updateRole,

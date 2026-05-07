@@ -74,6 +74,12 @@
           <BlackPersonTrendPage />
         </n-space>
       </n-tab-pane>
+      <n-tab-pane name="drops" tab="特殊掉落">
+        <n-card>
+          <div v-if="dropStats.length === 0" class="drop-stat-empty">暂无掉落记录</div>
+          <n-data-table v-else :columns="dropColumns" :data="dropStats" :row-key="(row: DropStat) => row.key" :pagination="false" />
+        </n-card>
+      </n-tab-pane>
     </n-tabs>
   </n-space>
 </template>
@@ -87,6 +93,7 @@ import BlackPersonTrendPage from './BlackPersonTrendPage.vue'
 import { DATE_RANGE_SHORTCUTS } from '../../constants/dateShortcuts'
 import MoneyValue from '../shared/MoneyValue.vue'
 import SchoolBadge from '../shared/SchoolBadge.vue'
+import { resolveDropIcon } from '../../utils/specialDrop'
 
 interface OverviewRow {
   key: string
@@ -217,6 +224,76 @@ const rows = computed<OverviewRow[]>(() => {
   })
 })
 
+interface DropStat {
+  key: string
+  itemName: string
+  iconBase64?: string
+  isOrphan: boolean
+  scopeLabel: string
+  totalCount: number
+  byRole: { roleId: string; count: number }[]
+}
+
+const dropStats = computed<DropStat[]>(() => {
+  const dropDefMap = new Map(tracker.specialDrops.value.map((d) => [d.id, d]))
+  const counter = new Map<string, { total: number; byRole: Map<string, number> }>()
+  allRows.value.forEach((row) => {
+    const ids = row.specialDropIds
+    if (!ids || ids.length === 0) return
+    ids.forEach((id) => {
+      const entry = counter.get(id) ?? { total: 0, byRole: new Map<string, number>() }
+      entry.total++
+      entry.byRole.set(row.roleId, (entry.byRole.get(row.roleId) ?? 0) + 1)
+      counter.set(id, entry)
+    })
+  })
+  return Array.from(counter.entries())
+    .map(([id, entry]) => {
+      const drop = dropDefMap.get(id)
+      const scopeLabel = drop
+        ? drop.matchAll
+          ? (drop.matchPlayers ? `通用（${drop.matchPlayers}）` : '通用')
+          : `${drop.dungeonPlayers}${drop.dungeonDifficulty}${drop.dungeonName}`
+        : '—'
+      return {
+        key: id,
+        itemName: drop?.itemName ?? '掉落已删除',
+        iconBase64: drop?.iconBase64,
+        isOrphan: !drop,
+        scopeLabel,
+        totalCount: entry.total,
+        byRole: Array.from(entry.byRole.entries())
+          .map(([roleId, count]) => ({ roleId, count }))
+          .sort((a, b) => b.count - a.count)
+      }
+    })
+    .sort((a, b) => b.totalCount - a.totalCount)
+})
+
+const dropColumns: DataTableColumns<DropStat> = [
+  { type: 'expand', expandable: (row) => row.byRole.length > 0, renderExpand: (row) => h('div', { class: 'drop-stat-roles' },
+    row.byRole.map((r) => {
+      const role = roleMap.value.get(r.roleId)
+      return h('div', { class: 'drop-stat-role' }, [
+        role
+          ? h('span', { style: 'display:inline-flex;align-items:center;gap:4px;' }, [
+              h('span', `${role.id}（${role.server}/`),
+              h(SchoolBadge, { school: role.school }),
+              h('span', '）')
+            ])
+          : h('span', { style: 'color:#999;' }, r.roleId),
+        h('span', { style: 'color:#18a058;font-weight:600;' }, `× ${r.count}`)
+      ])
+    })
+  ) },
+  { title: '图标', key: 'icon', width: 80, render: (row) => h('img', { src: resolveDropIcon(row.iconBase64), style: 'width:32px;height:32px;border-radius:4px;object-fit:cover;' }) },
+  { title: '掉落名称', key: 'itemName', render: (row) => row.isOrphan
+      ? h('span', { style: 'color:#999;text-decoration:line-through;' }, row.itemName)
+      : h('span', null, row.itemName) },
+  { title: '适用范围', key: 'scopeLabel', width: 200 },
+  { title: '总次数', key: 'totalCount', width: 120, sorter: (a, b) => a.totalCount - b.totalCount, defaultSortOrder: 'descend' }
+]
+
 function resetWeek() {
   filters.roleId = null
   filters.server = null
@@ -262,3 +339,24 @@ const columns: DataTableColumns<OverviewRow> = [
   }
 ]
 </script>
+
+<style scoped>
+.drop-stat-empty {
+  color: #999;
+  font-size: 13px;
+  text-align: center;
+  padding: 32px 0;
+}
+.drop-stat-roles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 6px 16px;
+  padding: 4px 8px;
+}
+.drop-stat-role {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+}
+</style>

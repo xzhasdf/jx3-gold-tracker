@@ -30,6 +30,7 @@ export interface RecordItem {
   remark?: string
   blacklisted?: boolean
   blackPerson?: string
+  specialDropIds?: string[]
 }
 
 export interface WineBuryItem {
@@ -42,6 +43,17 @@ export interface WineBuryItem {
   dismissed?: boolean
 }
 
+export interface SpecialDrop {
+  id: string
+  dungeonPlayers: '10人' | '25人'
+  dungeonDifficulty: '普通' | '英雄' | '挑战'
+  dungeonName: string
+  itemName: string
+  iconBase64?: string
+  matchAll?: boolean
+  matchPlayers?: '10人' | '25人'
+}
+
 export interface StoreState {
   roles: Role[]
   dungeons: Dungeon[]
@@ -49,4 +61,5 @@ export interface StoreState {
   columnConfig?: string[]
   wineBury?: WineBuryItem[]
   dungeonOrder?: string[]
+  specialDrops?: SpecialDrop[]
 }

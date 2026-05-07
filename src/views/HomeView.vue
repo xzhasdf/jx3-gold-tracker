@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.2.9</span>
+          <span class="header-version">v1.2.10</span>
         </div>
         <n-dropdown trigger="click" :options="settingOptions" @select="handleSettingSelect">
           <button class="gear-btn" type="button" aria-label="设置">⚙</button>
@@ -122,6 +122,17 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.2.10',
+    items: [
+      '小工具新增「特殊掉落」卡片，副本三级级联选择 + 图标上传，支持右键编辑、删除二次确认',
+      '内置一批通用掉落（玄晶 / 卦预乾坤 / 赐清平 / 朝露昙华 / 残卷·秘卷系列），不可编辑删除；卦预乾坤等限定 10 人副本',
+      '新增 / 编辑收支记录时，按副本匹配特殊掉落并支持多选；保留已删除掉落的历史关联（显示为「掉落已删除」）',
+      '收支明细列表「副本名称」下方展示该次记录的特殊掉落（图标 + 名称，每个一行）',
+      '总览新增「特殊掉落」 Tab，按物品聚合次数，可展开查看角色明细',
+      '副本管理彻底删除时关联记录的副本名称回退为「副本已删除」',
+    ]
+  },
   {
     version: 'v1.2.9',
     items: [
