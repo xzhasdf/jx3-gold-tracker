@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.2.10</span>
+          <span class="header-version">v1.2.11</span>
         </div>
         <n-dropdown trigger="click" :options="settingOptions" @select="handleSettingSelect">
           <button class="gear-btn" type="button" aria-label="设置">⚙</button>
@@ -43,6 +43,8 @@
       </n-tabs>
     </n-layout-content>
   </n-layout>
+
+  <SeasonSettingsModal v-model:show="showSeasonSettings" />
 </template>
 
 <script setup lang="ts">
@@ -53,6 +55,7 @@ import OverviewPage from '../modules/overview/OverviewPage.vue'
 import RoleManager from '../modules/role/RoleManager.vue'
 import DungeonManager from '../modules/dungeon/DungeonManager.vue'
 import ToolsPage from '../modules/tools/ToolsPage.vue'
+import SeasonSettingsModal from '../modules/shared/SeasonSettingsModal.vue'
 import { useTracker } from '../composables/useTracker'
 import { useOcrState } from '../composables/useOcrState'
 import { useWineBury } from '../composables/useWineBury'
@@ -109,9 +112,12 @@ onMounted(() => {
 })
 
 const showChangelog = ref(false)
+const showSeasonSettings = ref(false)
 
 const settingOptions = computed<DropdownOption[]>(() => [
   ...(!ocrReady.value ? [{ label: '下载 OCR 模型', key: 'download-ocr' }] : []),
+  { label: '赛季设置', key: 'season-settings' },
+  { type: 'divider' as const, key: 'div0' },
   { label: '导出数据', key: 'export-data' },
   { label: '导入数据', key: 'import-data' },
   { type: 'divider' as const, key: 'div1' },
@@ -122,6 +128,17 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.2.11',
+    items: [
+      '齿轮菜单新增「赛季设置」，可命名管理多个赛季的起止时间，新增/编辑时已被占用的日期自动禁用',
+      '收支明细、总览、黑本收益统计的查询表单新增「赛季」下拉，选中后自动套用赛季起止时间，重置或手动改日期会取消赛季选中',
+      '新增/编辑收支记录时，团牌输入框下方显示「常用团牌」（系统自动统计：录入次数 ≥5 次的团牌），点击直接填充',
+      '选定团牌后，下方显示「历史团长」标签（取该团牌历史记录中出现过的团长 ID），点击直接填充',
+      '常用团牌超过一行、历史团长超过两行自动折叠，提供「展开 / 收起」按钮',
+      '所有团长 ID 与黑本人字段自动去除名字两侧的 [] / 【】（保存、编辑回填、OCR 识别、关键字搜索均统一处理）',
+    ]
+  },
   {
     version: 'v1.2.10',
     items: [
@@ -301,6 +318,11 @@ function showAppOnlyTip() {
 }
 
 async function handleSettingSelect(key: string | number) {
+  if (key === 'season-settings') {
+    showSeasonSettings.value = true
+    return
+  }
+
   if (key === 'download-ocr') {
     if (!window.electronAPI) { showAppOnlyTip(); return }
     setLoading(true)
@@ -319,7 +341,7 @@ async function handleSettingSelect(key: string | number) {
   if (key === 'export-data') {
     if (!window.electronAPI) { showAppOnlyTip(); return }
     try {
-      const state = JSON.parse(JSON.stringify({ roles: tracker.roles.value, dungeons: tracker.dungeons.value, records: tracker.records.value, columnConfig: tracker.columnConfig.value, wineBury: tracker.wineBury.value }))
+      const state = JSON.parse(JSON.stringify({ roles: tracker.roles.value, dungeons: tracker.dungeons.value, records: tracker.records.value, columnConfig: tracker.columnConfig.value, wineBury: tracker.wineBury.value, seasons: tracker.seasons.value }))
       const result = await window.electronAPI.exportData(state)
       if (result?.ok) {
         message.success('数据已成功导出')

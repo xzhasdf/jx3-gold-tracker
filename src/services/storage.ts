@@ -12,7 +12,8 @@ function sanitizeState(input: unknown): StoreState {
     columnConfig: Array.isArray(parsed?.columnConfig) ? parsed!.columnConfig : undefined,
     wineBury: Array.isArray(parsed?.wineBury) ? parsed!.wineBury : undefined,
     dungeonOrder: Array.isArray(parsed?.dungeonOrder) ? parsed!.dungeonOrder : undefined,
-    specialDrops: Array.isArray(parsed?.specialDrops) ? parsed!.specialDrops : undefined
+    specialDrops: Array.isArray(parsed?.specialDrops) ? parsed!.specialDrops : undefined,
+    seasons: Array.isArray(parsed?.seasons) ? parsed!.seasons : undefined
   }
 }
 

@@ -26,6 +26,16 @@
             :style="fieldStyle"
           />
         </n-form-item>
+        <n-form-item v-if="seasonOptions.length > 0" label="赛季">
+          <n-select
+            v-model:value="filters.seasonId"
+            clearable
+            :options="seasonOptions"
+            placeholder="选择赛季"
+            :style="fieldStyle"
+            @update:value="onSeasonChange"
+          />
+        </n-form-item>
         <n-form-item label="日期">
           <n-date-picker
             v-model:value="filters.range"
@@ -33,6 +43,7 @@
             clearable
             :shortcuts="dateRangeShortcuts"
             :style="fieldStyle"
+            @update:value="onFilterRangeUpdate"
           />
         </n-form-item>
         <n-form-item>
@@ -110,12 +121,29 @@ interface OverviewRow {
 const tracker = useTracker()
 const fieldStyle = { width: '340px', maxWidth: '100%' }
 
-const filters = reactive<{ roleId: string | null; server: string | null; school: string | null; range: [number, number] | null }>({
+const filters = reactive<{ roleId: string | null; server: string | null; school: string | null; range: [number, number] | null; seasonId: string | null }>({
   roleId: null,
   server: null,
   school: null,
-  range: null
+  range: null,
+  seasonId: null
 })
+
+const seasonOptions = computed(() => tracker.seasons.value.map((s) => ({ label: s.name, value: s.id })))
+
+function onSeasonChange(seasonId: string | null) {
+  if (!seasonId) return
+  const season = tracker.seasons.value.find((s) => s.id === seasonId)
+  if (season) filters.range = [season.startTs, season.endTs]
+}
+
+function onFilterRangeUpdate(value: [number, number] | null) {
+  if (!filters.seasonId) return
+  const season = tracker.seasons.value.find((s) => s.id === filters.seasonId)
+  if (!season || !value || value[0] !== season.startTs || value[1] !== season.endTs) {
+    filters.seasonId = null
+  }
+}
 
 const dateRangeShortcuts = DATE_RANGE_SHORTCUTS
 const roleOptions = computed(() => tracker.roleOptions.value)
@@ -299,6 +327,7 @@ function resetWeek() {
   filters.server = null
   filters.school = null
   filters.range = null
+  filters.seasonId = null
 }
 
 const columns: DataTableColumns<OverviewRow> = [

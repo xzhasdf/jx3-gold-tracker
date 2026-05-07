@@ -12,6 +12,16 @@
             :style="{ width: '340px', maxWidth: '100%' }"
           />
         </n-form-item>
+        <n-form-item v-if="seasonOptions.length > 0" label="赛季">
+          <n-select
+            v-model:value="selectedSeasonId"
+            clearable
+            :options="seasonOptions"
+            placeholder="选择赛季"
+            :style="{ width: '340px', maxWidth: '100%' }"
+            @update:value="onSeasonChange"
+          />
+        </n-form-item>
         <n-form-item label="日期">
           <n-date-picker
             v-model:value="dateRange"
@@ -19,6 +29,7 @@
             clearable
             :shortcuts="dateRangeShortcuts"
             :style="{ width: '340px', maxWidth: '100%' }"
+            @update:value="onRangeUpdate"
           />
         </n-form-item>
         <n-form-item>
@@ -44,6 +55,7 @@ import { useTracker } from '../../composables/useTracker'
 import { FIXED_DUNGEON_OPTIONS, FIXED_DUNGEON_LABEL } from '../../constants/game'
 import { DATE_RANGE_SHORTCUTS } from '../../constants/dateShortcuts'
 import { formatMoney } from '../../utils/money'
+import { normalizePersonName } from '../../utils/leader'
 import iconGold from '../../assets/金币.png'
 import iconBrick from '../../assets/金砖.png'
 
@@ -57,11 +69,29 @@ const tracker = useTracker()
 
 const selectedDungeonId = ref<string | null>(null)
 const dateRange = ref<[number, number] | null>(tracker.getCurrentWeekRange())
+const selectedSeasonId = ref<string | null>(null)
 const dateRangeShortcuts = DATE_RANGE_SHORTCUTS
+
+const seasonOptions = computed(() => tracker.seasons.value.map((s) => ({ label: s.name, value: s.id })))
+
+function onSeasonChange(seasonId: string | null) {
+  if (!seasonId) return
+  const season = tracker.seasons.value.find((s) => s.id === seasonId)
+  if (season) dateRange.value = [season.startTs, season.endTs]
+}
+
+function onRangeUpdate(value: [number, number] | null) {
+  if (!selectedSeasonId.value) return
+  const season = tracker.seasons.value.find((s) => s.id === selectedSeasonId.value)
+  if (!season || !value || value[0] !== season.startTs || value[1] !== season.endTs) {
+    selectedSeasonId.value = null
+  }
+}
 
 function resetFilters() {
   selectedDungeonId.value = null
   dateRange.value = tracker.getCurrentWeekRange()
+  selectedSeasonId.value = null
 }
 
 const dungeonSelectOptions = computed(() => {
@@ -88,7 +118,7 @@ function effectiveIncome(record: { income: number; roleId: string }): number {
 const filteredRecords = computed(() => {
   const [start, end] = dateRange.value ?? [Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY]
   return tracker.records.value.filter((r) => {
-    const person = r.blackPerson?.trim()
+    const person = normalizePersonName(r.blackPerson)
     if (!person) return false
     if (selectedDungeonId.value && r.dungeonId !== selectedDungeonId.value) return false
     const t = new Date(`${r.date}T00:00:00`).getTime()
@@ -119,11 +149,11 @@ const dateKeys = computed(() => {
   return days
 })
 
-// Unique black person names (case-sensitive, trimmed)
+// Unique black person names (case-sensitive, trimmed, brackets stripped)
 const personNames = computed(() => {
   const names = new Set<string>()
   filteredRecords.value.forEach((r) => {
-    const p = r.blackPerson?.trim()
+    const p = normalizePersonName(r.blackPerson)
     if (p) names.add(p)
   })
   return Array.from(names).sort((a, b) => a.localeCompare(b, 'zh-CN'))
@@ -134,7 +164,7 @@ const lineData = computed(() => {
   return personNames.value.map((name) => {
     const values = Array(dateKeys.value.length).fill(0)
     filteredRecords.value.forEach((r) => {
-      if ((r.blackPerson?.trim()) !== name) return
+      if (normalizePersonName(r.blackPerson) !== name) return
       const i = indexMap.get(r.date)
       if (i === undefined) return
       values[i] += effectiveIncome(r)

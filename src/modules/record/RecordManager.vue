@@ -26,6 +26,16 @@
             :style="fieldStyle"
           />
         </n-form-item>
+        <n-form-item v-if="seasonOptions.length > 0" label="赛季">
+          <n-select
+            v-model:value="filters.seasonId"
+            clearable
+            :options="seasonOptions"
+            placeholder="选择赛季"
+            :style="fieldStyle"
+            @update:value="onSeasonChange"
+          />
+        </n-form-item>
         <n-form-item label="日期">
           <n-date-picker
             v-model:value="filters.range"
@@ -33,6 +43,7 @@
             clearable
             :shortcuts="dateRangeShortcuts"
             :style="fieldStyle"
+            @update:value="onFilterRangeUpdate"
           />
         </n-form-item>
         <n-form-item label="关键字">
@@ -162,11 +173,26 @@
               <n-input v-model:value="addForm.groupBrand" :style="fieldStyle" />
               <n-checkbox v-if="addForm.groupBrand.trim()" v-model:checked="addForm.blacklisted">拉黑</n-checkbox>
             </n-space>
+            <ExpandableTagRow
+              v-if="frequentBrands.length > 0"
+              label="常用团牌"
+              :items="frequentBrands"
+              :max-lines="1"
+              @select="(v: string) => (addForm.groupBrand = v)"
+            />
             <div class="blacklist-hint" :class="{ visible: showAddBlacklistedHint }">该团牌已拉黑</div>
           </n-space>
         </n-form-item>
         <n-form-item label="团长ID">
-          <n-input v-model:value="addForm.leaderId" :style="fieldStyle" />
+          <n-space vertical :size="6">
+            <n-input v-model:value="addForm.leaderId" :style="fieldStyle" />
+            <ExpandableTagRow
+              v-if="addBrandLeaders.length > 0"
+              label="历史团长"
+              :items="addBrandLeaders"
+              @select="(v: string) => (addForm.leaderId = v)"
+            />
+          </n-space>
         </n-form-item>
         <n-form-item label="黑本人">
           <n-input v-model:value="addForm.blackPerson" placeholder="填写黑本人" :style="fieldStyle" />
@@ -237,11 +263,26 @@
               <n-input v-model:value="editForm.groupBrand" :style="fieldStyle" />
               <n-checkbox v-if="editForm.groupBrand.trim()" v-model:checked="editForm.blacklisted">拉黑</n-checkbox>
             </n-space>
+            <ExpandableTagRow
+              v-if="frequentBrands.length > 0"
+              label="常用团牌"
+              :items="frequentBrands"
+              :max-lines="1"
+              @select="(v: string) => (editForm.groupBrand = v)"
+            />
             <div class="blacklist-hint" :class="{ visible: showEditBlacklistedHint }">该团牌已拉黑</div>
           </n-space>
         </n-form-item>
         <n-form-item label="团长ID">
-          <n-input v-model:value="editForm.leaderId" :style="fieldStyle" />
+          <n-space vertical :size="6">
+            <n-input v-model:value="editForm.leaderId" :style="fieldStyle" />
+            <ExpandableTagRow
+              v-if="editBrandLeaders.length > 0"
+              label="历史团长"
+              :items="editBrandLeaders"
+              @select="(v: string) => (editForm.leaderId = v)"
+            />
+          </n-space>
         </n-form-item>
         <n-form-item label="黑本人">
           <n-input v-model:value="editForm.blackPerson" placeholder="填写黑本人" :style="fieldStyle" />
@@ -305,7 +346,9 @@ import { splitGold, toGold } from '../../utils/money'
 import MoneyValue from '../shared/MoneyValue.vue'
 import RecordOcrModal from './RecordOcrModal.vue'
 import { resolveDropIcon } from '../../utils/specialDrop'
+import { normalizePersonName } from '../../utils/leader'
 import SchoolBadge from '../shared/SchoolBadge.vue'
+import ExpandableTagRow from '../shared/ExpandableTagRow.vue'
 import type { OcrFillResult } from './ocr'
 
 const tracker = useTracker()
@@ -313,12 +356,29 @@ const { ocrReady } = useOcrState()
 const dialog = useDialog()
 const fieldStyle = { width: '340px', maxWidth: '100%' }
 
-const filters = reactive<{ roleId: string | null; dungeonId: string | null; range: [number, number] | null; keyword: string }>({
+const filters = reactive<{ roleId: string | null; dungeonId: string | null; range: [number, number] | null; keyword: string; seasonId: string | null }>({
   roleId: null,
   dungeonId: null,
   range: tracker.getCurrentWeekRange(),
-  keyword: ''
+  keyword: '',
+  seasonId: null
 })
+
+const seasonOptions = computed(() => tracker.seasons.value.map((s) => ({ label: s.name, value: s.id })))
+
+function onSeasonChange(seasonId: string | null) {
+  if (!seasonId) return
+  const season = tracker.seasons.value.find((s) => s.id === seasonId)
+  if (season) filters.range = [season.startTs, season.endTs]
+}
+
+function onFilterRangeUpdate(value: [number, number] | null) {
+  if (!filters.seasonId) return
+  const season = tracker.seasons.value.find((s) => s.id === filters.seasonId)
+  if (!season || !value || value[0] !== season.startTs || value[1] !== season.endTs) {
+    filters.seasonId = null
+  }
+}
 
 const showAdd = ref(false)
 const showEdit = ref(false)
@@ -565,6 +625,10 @@ const totals = computed(() =>
   )
 )
 
+const frequentBrands = computed(() => tracker.frequentGroupBrands.value)
+const addBrandLeaders = computed(() => tracker.getLeadersForBrand(addForm.groupBrand))
+const editBrandLeaders = computed(() => tracker.getLeadersForBrand(editForm.groupBrand))
+
 const blacklistedBrandSet = computed(() => {
   const set = new Set<string>()
   tracker.getGroupBrandRoster().forEach((item) => {
@@ -681,6 +745,7 @@ function resetFilters() {
   filters.dungeonId = null
   filters.range = tracker.getCurrentWeekRange()
   filters.keyword = ''
+  filters.seasonId = null
 }
 
 function showTip(content: string) {
@@ -856,7 +921,7 @@ function applyOcrResult(result: OcrFillResult) {
   if (typeof result.incomeGold === 'number') addForm.incomeGold = result.incomeGold
   if (typeof result.expenseGold === 'number') addForm.expenseGold = result.expenseGold
   if (typeof result.groupBrand === 'string') addForm.groupBrand = result.groupBrand
-  if (typeof result.leaderId === 'string') addForm.leaderId = result.leaderId
+  if (typeof result.leaderId === 'string') addForm.leaderId = normalizePersonName(result.leaderId)
   if (typeof result.remark === 'string') addForm.remark = result.remark
 }
 
@@ -870,10 +935,10 @@ function openEdit(row: (typeof rows.value)[number]) {
   editForm.incomeGold = income.brick * 10000 + income.gold
   editForm.expenseGold = expense.brick * 10000 + expense.gold
   editForm.groupBrand = row.groupBrand || ''
-  editForm.leaderId = row.leaderId || ''
+  editForm.leaderId = normalizePersonName(row.leaderId)
   editForm.remark = row.remark || ''
   editForm.blacklisted = Boolean(row.blacklisted)
-  editForm.blackPerson = row.blackPerson || ''
+  editForm.blackPerson = normalizePersonName(row.blackPerson)
   const existingDrops = Array.isArray(row.specialDropIds) ? row.specialDropIds : []
   editForm.specialDropIds = existingDrops.slice()
   editForm.hasSpecialDrop = existingDrops.length > 0
@@ -1210,5 +1275,26 @@ const columns = computed(() =>
   border: 1px dashed #d9d9d9;
   border-radius: 3px;
   white-space: nowrap;
+}
+
+.quick-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-top: 2px;
+}
+.quick-tag-label {
+  font-size: 12px;
+  color: #909399;
+  user-select: none;
+}
+.quick-tag {
+  cursor: pointer;
+  transition: filter 0.15s, transform 0.15s;
+}
+.quick-tag:hover {
+  filter: brightness(0.95);
+  transform: translateY(-1px);
 }
 </style>

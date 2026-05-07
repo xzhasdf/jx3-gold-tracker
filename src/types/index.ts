@@ -54,6 +54,13 @@ export interface SpecialDrop {
   matchPlayers?: '10人' | '25人'
 }
 
+export interface Season {
+  id: string
+  name: string
+  startTs: number
+  endTs: number
+}
+
 export interface StoreState {
   roles: Role[]
   dungeons: Dungeon[]
@@ -62,4 +69,5 @@ export interface StoreState {
   wineBury?: WineBuryItem[]
   dungeonOrder?: string[]
   specialDrops?: SpecialDrop[]
+  seasons?: Season[]
 }

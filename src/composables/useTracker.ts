@@ -3,7 +3,8 @@ import { DEFAULT_DUNGEONS, DIFFICULTY_OPTIONS, FIXED_DUNGEON_LABEL, PLAYER_OPTIO
 import { DEFAULT_SPECIAL_DROPS } from '../utils/specialDrop'
 import { loadState, saveState } from '../services/storage'
 import { getCurrentMonthRange, getCurrentWeekRange, toYmd } from '../utils/date'
-import type { Dungeon, RecordItem, Role, SpecialDrop, StoreState, WineBuryItem } from '../types'
+import { normalizePersonName } from '../utils/leader'
+import type { Dungeon, RecordItem, Role, Season, SpecialDrop, StoreState, WineBuryItem } from '../types'
 
 function makeId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -16,6 +17,7 @@ const records = ref<RecordItem[]>([])
 const columnConfig = ref<string[] | undefined>(undefined)
 const wineBury = ref<WineBuryItem[]>([])
 const specialDrops = ref<SpecialDrop[]>([])
+const seasons = ref<Season[]>([])
 const newlyAddedRoleIds = ref<Set<string>>(new Set())
 
 const roleMap = computed(() => new Map(roles.value.map((r) => [r.id, r])))
@@ -148,6 +150,7 @@ function init() {
   }
 
   specialDrops.value = Array.isArray(state.specialDrops) ? state.specialDrops : []
+  seasons.value = Array.isArray(state.seasons) ? state.seasons : []
 
   // 清理已从 DEFAULT_SPECIAL_DROPS 移除的旧默认条目
   const validDefaultNames = new Set(DEFAULT_SPECIAL_DROPS.map((d) => d.itemName))
@@ -211,7 +214,7 @@ function init() {
 }
 
 function persist() {
-  saveState({ roles: roles.value, dungeons: dungeons.value, records: records.value, columnConfig: columnConfig.value, wineBury: wineBury.value, dungeonOrder: dungeonOrder.value, specialDrops: specialDrops.value })
+  saveState({ roles: roles.value, dungeons: dungeons.value, records: records.value, columnConfig: columnConfig.value, wineBury: wineBury.value, dungeonOrder: dungeonOrder.value, specialDrops: specialDrops.value, seasons: seasons.value })
 }
 
 function addRole(payload: Role): { ok: boolean; message?: string } {
@@ -397,10 +400,10 @@ function addRecord(payload: {
     income: payload.income,
     expense: payload.expense,
     groupBrand: payload.groupBrand?.trim() || undefined,
-    leaderId: payload.leaderId?.trim() || undefined,
+    leaderId: normalizePersonName(payload.leaderId) || undefined,
     remark: payload.remark?.trim() || undefined,
     blacklisted: Boolean(payload.blacklisted),
-    blackPerson: payload.blackPerson?.trim() || undefined,
+    blackPerson: normalizePersonName(payload.blackPerson) || undefined,
     specialDropIds: payload.specialDropIds && payload.specialDropIds.length > 0 ? payload.specialDropIds.slice() : undefined
   })
   persist()
@@ -418,10 +421,10 @@ function updateRecord(
   target.income = payload.income
   target.expense = payload.expense
   target.groupBrand = payload.groupBrand?.trim() || undefined
-  target.leaderId = payload.leaderId?.trim() || undefined
+  target.leaderId = normalizePersonName(payload.leaderId) || undefined
   target.remark = payload.remark?.trim() || undefined
   target.blacklisted = Boolean(payload.blacklisted)
-  target.blackPerson = payload.blackPerson?.trim() || undefined
+  target.blackPerson = normalizePersonName(payload.blackPerson) || undefined
   target.specialDropIds = payload.specialDropIds && payload.specialDropIds.length > 0 ? payload.specialDropIds.slice() : undefined
   persist()
 }
@@ -479,6 +482,66 @@ function setColumnConfig(keys: string[]) {
   persist()
 }
 
+function addSeason(payload: { name: string; startTs: number; endTs: number }): { ok: boolean; message?: string } {
+  const name = payload.name.trim()
+  if (!name) return { ok: false, message: '赛季名称不能为空' }
+  if (seasons.value.some((s) => s.name === name)) return { ok: false, message: '赛季名称已存在' }
+  if (!Number.isFinite(payload.startTs) || !Number.isFinite(payload.endTs)) return { ok: false, message: '请选择起止时间' }
+  if (payload.startTs > payload.endTs) return { ok: false, message: '开始时间不能晚于结束时间' }
+  seasons.value.push({ id: makeId('season'), name, startTs: payload.startTs, endTs: payload.endTs })
+  persist()
+  return { ok: true }
+}
+
+function updateSeason(id: string, payload: { name: string; startTs: number; endTs: number }): { ok: boolean; message?: string } {
+  const target = seasons.value.find((s) => s.id === id)
+  if (!target) return { ok: false, message: '赛季不存在' }
+  const name = payload.name.trim()
+  if (!name) return { ok: false, message: '赛季名称不能为空' }
+  if (seasons.value.some((s) => s.name === name && s.id !== id)) return { ok: false, message: '赛季名称已存在' }
+  if (!Number.isFinite(payload.startTs) || !Number.isFinite(payload.endTs)) return { ok: false, message: '请选择起止时间' }
+  if (payload.startTs > payload.endTs) return { ok: false, message: '开始时间不能晚于结束时间' }
+  target.name = name
+  target.startTs = payload.startTs
+  target.endTs = payload.endTs
+  persist()
+  return { ok: true }
+}
+
+function deleteSeason(id: string): { ok: boolean } {
+  seasons.value = seasons.value.filter((s) => s.id !== id)
+  persist()
+  return { ok: true }
+}
+
+const FREQUENT_GROUP_BRAND_THRESHOLD = 5
+
+const frequentGroupBrands = computed(() => {
+  const counter = new Map<string, number>()
+  records.value.forEach((r) => {
+    const brand = r.groupBrand?.trim()
+    if (!brand) return
+    counter.set(brand, (counter.get(brand) ?? 0) + 1)
+  })
+  return Array.from(counter.entries())
+    .filter(([, count]) => count >= FREQUENT_GROUP_BRAND_THRESHOLD)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh-CN'))
+    .map(([brand]) => brand)
+})
+
+function getLeadersForBrand(brand: string): string[] {
+  const trimmed = brand.trim()
+  if (!trimmed) return []
+  const set = new Set<string>()
+  records.value.forEach((r) => {
+    if (r.groupBrand?.trim() === trimmed) {
+      const lid = normalizePersonName(r.leaderId)
+      if (lid) set.add(lid)
+    }
+  })
+  return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-CN'))
+}
+
 function importState(state: StoreState) {
   roles.value = (Array.isArray(state.roles) ? state.roles : []).map(normalizeRole)
   dungeons.value = (Array.isArray(state.dungeons) ? state.dungeons : []).map((dungeon: Dungeon) => ({
@@ -489,6 +552,7 @@ function importState(state: StoreState) {
   columnConfig.value = Array.isArray(state.columnConfig) ? state.columnConfig : undefined
   wineBury.value = Array.isArray(state.wineBury) ? state.wineBury : []
   specialDrops.value = Array.isArray(state.specialDrops) ? state.specialDrops : []
+  seasons.value = Array.isArray(state.seasons) ? state.seasons : []
   dungeonOrder.value = Array.isArray(state.dungeonOrder) ? state.dungeonOrder.slice() : []
   reconcileDungeonOrder()
   persist()
@@ -499,7 +563,7 @@ function getGroupBrandRoster() {
   records.value.forEach((record) => {
     const groupBrand = record.groupBrand?.trim()
     if (!groupBrand) return
-    const leaderId = record.leaderId?.trim() || '-'
+    const leaderId = normalizePersonName(record.leaderId) || '-'
     const entry = map.get(groupBrand) ?? { blacklisted: false, leaders: new Set<string>() }
     entry.leaders.add(leaderId)
     if (record.blacklisted) entry.blacklisted = true
@@ -525,7 +589,12 @@ function queryRecords(filters: { roleId: string | null; dungeonId: string | null
       if (filters.roleId && r.roleId !== filters.roleId) return false
       if (filters.dungeonId && r.dungeonId !== filters.dungeonId) return false
       if (t < start || t > end) return false
-      if (kw && !(r.groupBrand ?? '').toLowerCase().includes(kw) && !(r.leaderId ?? '').toLowerCase().includes(kw) && !(r.blackPerson ?? '').toLowerCase().includes(kw)) return false
+      if (kw) {
+        const brand = (r.groupBrand ?? '').toLowerCase()
+        const leader = normalizePersonName(r.leaderId).toLowerCase()
+        const black = normalizePersonName(r.blackPerson).toLowerCase()
+        if (!brand.includes(kw) && !leader.includes(kw) && !black.includes(kw)) return false
+      }
       return true
     })
     .sort((a, b) => (a.date < b.date ? 1 : -1))
@@ -534,6 +603,8 @@ function queryRecords(filters: { roleId: string | null; dungeonId: string | null
       const dungeon = dungeonMap.value.get(r.dungeonId)
       return {
         ...r,
+        leaderId: normalizePersonName(r.leaderId) || undefined,
+        blackPerson: normalizePersonName(r.blackPerson) || undefined,
         roleText: role ? `${role.id}（${role.server}/${role.school}）` : '已删除角色',
         dungeonText: FIXED_DUNGEON_LABEL[r.dungeonId] ?? (dungeon ? `${dungeon.players}${dungeon.difficulty}${dungeon.name}` : '副本已删除'),
         subtotal: r.income - r.expense
@@ -622,6 +693,12 @@ export function useTracker() {
     addSpecialDrop,
     deleteSpecialDrop,
     updateSpecialDrop,
+    seasons,
+    addSeason,
+    updateSeason,
+    deleteSeason,
+    frequentGroupBrands,
+    getLeadersForBrand,
     persist,
     addRole,
     updateRole,
