@@ -482,12 +482,21 @@ function setColumnConfig(keys: string[]) {
   persist()
 }
 
+function findSeasonOverlap(startTs: number, endTs: number, excludeId?: string) {
+  return seasons.value.find((s) => {
+    if (excludeId && s.id === excludeId) return false
+    return startTs <= s.endTs && s.startTs <= endTs
+  })
+}
+
 function addSeason(payload: { name: string; startTs: number; endTs: number }): { ok: boolean; message?: string } {
   const name = payload.name.trim()
   if (!name) return { ok: false, message: '赛季名称不能为空' }
   if (seasons.value.some((s) => s.name === name)) return { ok: false, message: '赛季名称已存在' }
   if (!Number.isFinite(payload.startTs) || !Number.isFinite(payload.endTs)) return { ok: false, message: '请选择起止时间' }
   if (payload.startTs > payload.endTs) return { ok: false, message: '开始时间不能晚于结束时间' }
+  const overlap = findSeasonOverlap(payload.startTs, payload.endTs)
+  if (overlap) return { ok: false, message: `时间区间与赛季「${overlap.name}」重叠` }
   seasons.value.push({ id: makeId('season'), name, startTs: payload.startTs, endTs: payload.endTs })
   persist()
   return { ok: true }
@@ -501,6 +510,8 @@ function updateSeason(id: string, payload: { name: string; startTs: number; endT
   if (seasons.value.some((s) => s.name === name && s.id !== id)) return { ok: false, message: '赛季名称已存在' }
   if (!Number.isFinite(payload.startTs) || !Number.isFinite(payload.endTs)) return { ok: false, message: '请选择起止时间' }
   if (payload.startTs > payload.endTs) return { ok: false, message: '开始时间不能晚于结束时间' }
+  const overlap = findSeasonOverlap(payload.startTs, payload.endTs, id)
+  if (overlap) return { ok: false, message: `时间区间与赛季「${overlap.name}」重叠` }
   target.name = name
   target.startTs = payload.startTs
   target.endTs = payload.endTs

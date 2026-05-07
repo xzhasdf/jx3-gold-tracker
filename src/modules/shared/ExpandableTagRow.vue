@@ -24,7 +24,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 const props = withDefaults(
   defineProps<{ label: string; items: string[]; maxLines?: number }>(),
@@ -58,6 +58,15 @@ onMounted(() => {
   ro.observe(contentRef.value)
   measure()
 })
+
+// items 变化时折叠态下 box 大小不变，ResizeObserver 不会触发，需手动重测
+watch(
+  () => props.items.length,
+  async () => {
+    await nextTick()
+    measure()
+  }
+)
 
 onUnmounted(() => {
   ro?.disconnect()
