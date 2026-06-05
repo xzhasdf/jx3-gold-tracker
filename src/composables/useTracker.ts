@@ -763,7 +763,7 @@ function getGroupBrandRoster() {
   return result
 }
 
-function queryRecords(filters: { roleId: string | null; dungeonId: string | null; range: [number, number] | null; keyword?: string }) {
+function queryRecords(filters: { roleId: string | null; dungeonId: string | null; range: [number, number] | null; keyword?: string; groupBrand?: string | null }) {
   const [start, end] = filters.range ?? [Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY]
   const kw = filters.keyword?.trim().toLowerCase() ?? ''
   return records.value
@@ -771,6 +771,7 @@ function queryRecords(filters: { roleId: string | null; dungeonId: string | null
       const t = new Date(`${r.date}T00:00:00`).getTime()
       if (filters.roleId && r.roleId !== filters.roleId) return false
       if (filters.dungeonId && r.dungeonId !== filters.dungeonId) return false
+      if (filters.groupBrand && (r.groupBrand?.trim() ?? '') !== filters.groupBrand) return false
       if (t < start || t > end) return false
       if (kw) {
         const brand = (r.groupBrand ?? '').toLowerCase()

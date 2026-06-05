@@ -26,6 +26,17 @@
             :style="fieldStyle"
           />
         </n-form-item>
+        <n-form-item label="团牌">
+          <n-select
+            v-model:value="filters.groupBrand"
+            clearable
+            filterable
+            :options="groupBrandSelectOptions"
+            :render-label="renderBrandOption"
+            placeholder="全部团牌"
+            :style="fieldStyle"
+          />
+        </n-form-item>
         <n-form-item v-if="seasonOptions.length > 0" label="赛季">
           <n-select
             v-model:value="filters.seasonId"
@@ -94,10 +105,15 @@
       </div>
       <n-data-table
         :columns="columns"
-        :data="rows"
-        :pagination="{ pageSize: 10 }"
+        :data="visibleRows"
+        :pagination="false"
         :scroll-x="1200"
+        @update:sorter="onSorterChange"
       />
+      <div ref="loadMoreRef" class="load-more-sentinel">
+        <span v-if="hasMoreRows" class="load-more-text">下拉加载更多…</span>
+        <span v-else-if="rows.length > 0" class="load-more-text">已显示全部 {{ rows.length }} 条</span>
+      </div>
     </n-card>
   </n-space>
 
@@ -348,8 +364,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, reactive, ref, watch } from 'vue'
-import { NSlider, NTag, type CascaderOption, type DataTableColumns, useDialog } from 'naive-ui'
+import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { NSlider, NTag, type CascaderOption, type DataTableColumns, type DataTableSortState, useDialog } from 'naive-ui'
 import { useTracker } from '../../composables/useTracker'
 import { useOcrState } from '../../composables/useOcrState'
 import { FIXED_DUNGEON_OPTIONS } from '../../constants/game'
@@ -369,12 +385,13 @@ const { ocrReady } = useOcrState()
 const dialog = useDialog()
 const fieldStyle = { width: '340px', maxWidth: '100%' }
 
-const filters = reactive<{ roleId: string | null; dungeonId: string | null; range: [number, number] | null; keyword: string; seasonId: string | null }>({
+const filters = reactive<{ roleId: string | null; dungeonId: string | null; range: [number, number] | null; keyword: string; seasonId: string | null; groupBrand: string | null }>({
   roleId: null,
   dungeonId: null,
   range: tracker.getCurrentWeekRange(),
   keyword: '',
-  seasonId: null
+  seasonId: null,
+  groupBrand: null
 })
 
 const seasonOptions = computed(() => tracker.seasons.value.map((s) => ({ label: s.name, value: s.id })))
@@ -621,6 +638,60 @@ function renderDungeonCascaderLabel(option: CascaderOption) {
 }
 
 const rows = computed(() => tracker.queryRecords(filters))
+
+// ─── 下拉加载（每次 +10），排序对全量数据生效 ───
+const PAGE_SIZE = 10
+const visibleCount = ref(PAGE_SIZE)
+
+const sortComparators: Record<string, (a: (typeof rows.value)[number], b: (typeof rows.value)[number]) => number> = {
+  income: (a, b) => a.income - b.income,
+  expense: (a, b) => a.expense - b.expense,
+  subtotal: (a, b) => a.subtotal - b.subtotal
+}
+const sortState = ref<DataTableSortState | null>(null)
+
+function onSorterChange(s: DataTableSortState | DataTableSortState[] | null) {
+  sortState.value = Array.isArray(s) ? s[0] ?? null : s
+}
+
+const sortedRows = computed(() => {
+  const s = sortState.value
+  if (!s || !s.order) return rows.value
+  const cmp = sortComparators[String(s.columnKey)]
+  if (!cmp) return rows.value
+  const arr = rows.value.slice().sort(cmp)
+  if (s.order === 'descend') arr.reverse()
+  return arr
+})
+
+const visibleRows = computed(() => sortedRows.value.slice(0, visibleCount.value))
+const hasMoreRows = computed(() => visibleCount.value < rows.value.length)
+
+watch(filters, () => { visibleCount.value = PAGE_SIZE }, { deep: true })
+
+const loadMoreRef = ref<HTMLElement | null>(null)
+let loadMoreObserver: IntersectionObserver | null = null
+
+onMounted(() => {
+  loadMoreObserver = new IntersectionObserver(async (entries) => {
+    if (!entries[0]?.isIntersecting) return
+    if (visibleCount.value >= rows.value.length) return
+    visibleCount.value += PAGE_SIZE
+    await nextTick()
+    // 哨兵仍在视口内时重新观察，触发下一轮加载
+    if (loadMoreRef.value && loadMoreObserver) {
+      loadMoreObserver.unobserve(loadMoreRef.value)
+      loadMoreObserver.observe(loadMoreRef.value)
+    }
+  })
+  if (loadMoreRef.value) loadMoreObserver.observe(loadMoreRef.value)
+})
+
+onBeforeUnmount(() => {
+  loadMoreObserver?.disconnect()
+  loadMoreObserver = null
+})
+
 const totals = computed(() =>
   rows.value.reduce(
     (acc, row) => {
@@ -785,6 +856,7 @@ function resetFilters() {
   filters.range = tracker.getCurrentWeekRange()
   filters.keyword = ''
   filters.seasonId = null
+  filters.groupBrand = null
 }
 
 function showTip(content: string) {
@@ -1026,13 +1098,16 @@ const CONFIGURABLE_COLUMNS = [
   { key: 'income', label: '收入' },
   { key: 'expense', label: '支出' },
   { key: 'subtotal', label: '收支小计' },
-  { key: 'groupBrand', label: '团牌' },
-  { key: 'leaderId', label: '团长ID' },
+  { key: 'leaderId', label: '团长' },
   { key: 'remark', label: '备注' },
   { key: 'blackPerson', label: '黑本人' },
 ]
 const DEFAULT_VISIBLE_KEYS = CONFIGURABLE_COLUMNS.map((c) => c.key)
-const visibleColumnSet = ref<Set<string>>(new Set(tracker.columnConfig.value ?? DEFAULT_VISIBLE_KEYS))
+// 旧版「团牌」「团长ID」两列已合并为「团长」：老配置勾选过团牌的视为勾选合并列
+const savedColumnKeys = tracker.columnConfig.value ?? DEFAULT_VISIBLE_KEYS
+const visibleColumnSet = ref<Set<string>>(new Set(
+  savedColumnKeys.includes('groupBrand') ? [...savedColumnKeys, 'leaderId'] : savedColumnKeys
+))
 const visibleColumnArray = computed(() => [...visibleColumnSet.value])
 
 function onVisibleColumnsChange(keys: string[]) {
@@ -1109,23 +1184,21 @@ const allColumns = computed<DataTableColumns<(typeof rows.value)[number]>>(() =>
     render: (row) => h(MoneyValue, { value: row.subtotal })
   },
   {
-    title: '团牌',
-    key: 'groupBrand',
-    minWidth: 80,
+    title: '团长',
+    key: 'leaderId',
+    minWidth: 110,
     render: (row) => {
-      if (!row.groupBrand) return '-'
-      if (!row.blacklisted) return row.groupBrand
-      return h('div', { style: 'display:flex;flex-direction:column;gap:2px;' }, [
-        h('span', { style: 'white-space:nowrap;' }, row.groupBrand),
-        h(NTag, { type: 'error', size: 'small', style: 'flex-shrink:0;align-self:flex-start;' }, { default: () => '黑名单' })
+      if (!row.groupBrand && !row.leaderId) return '-'
+      return h('div', { style: 'display:flex;flex-direction:column;gap:3px;align-items:flex-start;' }, [
+        row.groupBrand
+          ? h('div', { style: 'display:flex;align-items:center;gap:4px;flex-wrap:nowrap;' }, [
+              h(NTag, { size: 'small' }, { default: () => row.groupBrand }),
+              row.blacklisted ? h(NTag, { type: 'error', size: 'small' }, { default: () => '黑名单' }) : null
+            ])
+          : null,
+        row.leaderId ? h('span', { style: 'white-space:nowrap;' }, row.leaderId) : null
       ])
     }
-  },
-  {
-    title: '团长ID',
-    key: 'leaderId',
-    minWidth: 80,
-    render: (row) => row.leaderId || '-'
   },
   {
     title: '备注',
@@ -1255,6 +1328,16 @@ const columns = computed(() =>
   height: 18px;
   object-fit: cover;
   border-radius: 3px;
+}
+
+.load-more-sentinel {
+  display: flex;
+  justify-content: center;
+  padding: 10px 0 2px;
+}
+.load-more-text {
+  font-size: 12px;
+  color: #c0c4cc;
 }
 
 .record-dungeon-cell {

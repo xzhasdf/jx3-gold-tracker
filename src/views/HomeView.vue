@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.2.12</span>
+          <span class="header-version">v1.2.13</span>
         </div>
         <n-dropdown trigger="click" :options="settingOptions" @select="handleSettingSelect">
           <button class="gear-btn" type="button" aria-label="设置">⚙</button>
@@ -128,6 +128,15 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.2.13',
+    items: [
+      '收支明细列表由分页改为滚动到底自动加载（每次 10 条），收入/支出/小计排序对全部数据生效',
+      '总览与收支明细的筛选新增「团牌」下拉条件，黑名单团牌带红色标记',
+      '收支明细「团牌」「团长ID」两列合并为「团长」：上方团牌 Tag（黑名单标记跟随其后），下方团长名',
+      '修复 Windows 任务栏 / 开始菜单应用图标显示不完整的问题（图标源文件补齐为方形）',
+    ]
+  },
   {
     version: 'v1.2.12',
     items: [

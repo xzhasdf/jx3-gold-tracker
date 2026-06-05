@@ -26,6 +26,17 @@
             :style="fieldStyle"
           />
         </n-form-item>
+        <n-form-item label="团牌">
+          <n-select
+            v-model:value="filters.groupBrand"
+            clearable
+            filterable
+            :options="groupBrandFilterOptions"
+            :render-label="renderBrandOption"
+            placeholder="全部团牌"
+            :style="fieldStyle"
+          />
+        </n-form-item>
         <n-form-item v-if="seasonOptions.length > 0" label="赛季">
           <n-select
             v-model:value="filters.seasonId"
@@ -121,12 +132,13 @@ interface OverviewRow {
 const tracker = useTracker()
 const fieldStyle = { width: '340px', maxWidth: '100%' }
 
-const filters = reactive<{ roleId: string | null; server: string | null; school: string | null; range: [number, number] | null; seasonId: string | null }>({
+const filters = reactive<{ roleId: string | null; server: string | null; school: string | null; range: [number, number] | null; seasonId: string | null; groupBrand: string | null }>({
   roleId: null,
   server: null,
   school: null,
   range: null,
-  seasonId: null
+  seasonId: null,
+  groupBrand: null
 })
 
 const seasonOptions = computed(() => tracker.seasons.value.map((s) => ({ label: s.name, value: s.id })))
@@ -167,9 +179,29 @@ function renderRoleOption(option: { value?: string | number }) {
   ])
 }
 
+const groupBrandFilterOptions = computed(() =>
+  tracker.groupBrands.value
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+    .map((b) => ({ label: b.name, value: b.name, blacklisted: Boolean(b.blacklisted) }))
+)
+
+function renderBrandOption(option: { label?: string | number; blacklisted?: boolean }) {
+  const label = String(option.label ?? '')
+  if (!option.blacklisted) return label
+  return h('span', { style: 'display:inline-flex;align-items:center;gap:6px;' }, [
+    h('span', label),
+    h(NTag, {
+      type: 'error',
+      size: 'small',
+      style: 'transform: scale(0.9); transform-origin: left center;'
+    }, { default: () => '黑名单' })
+  ])
+}
+
 const allRows = computed(() => {
   const roleMap = new Map(tracker.roles.value.map((r) => [r.id, r]))
-  return tracker.queryRecords({ roleId: null, dungeonId: null, range: filters.range }).filter((row) => {
+  return tracker.queryRecords({ roleId: null, dungeonId: null, range: filters.range, groupBrand: filters.groupBrand }).filter((row) => {
     if (filters.roleId && row.roleId !== filters.roleId) return false
     const role = roleMap.get(row.roleId)
     if (!role) return false
@@ -328,6 +360,7 @@ function resetWeek() {
   filters.school = null
   filters.range = null
   filters.seasonId = null
+  filters.groupBrand = null
 }
 
 const columns: DataTableColumns<OverviewRow> = [
