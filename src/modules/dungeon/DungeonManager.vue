@@ -17,7 +17,7 @@
     <n-divider />
     <div class="dungeon-toolbar">
       <div class="dungeon-toolbar-actions">
-        <n-button text type="primary" @click="showRoster = true">团牌名单</n-button>
+        <n-button text type="primary" @click="showRoster = true">团牌管理</n-button>
         <n-popover trigger="click" placement="bottom-start" :show-arrow="false" style="width: 320px; padding: 10px">
           <template #trigger>
             <n-button text type="primary">排序</n-button>
@@ -53,8 +53,19 @@
     </template>
   </n-modal>
 
-  <n-modal v-model:show="showRoster" preset="card" title="团牌名单" style="max-width: 680px">
-    <n-data-table :columns="rosterColumns" :data="rosterRows" :pagination="false" />
+  <n-modal v-model:show="showRoster" preset="card" title="团牌管理" style="max-width: 760px">
+    <div class="brand-toolbar">
+      <n-space :size="8" :wrap-item="false" align="center">
+        <n-input v-model:value="brandForm.name" placeholder="输入团牌名称" style="width: 180px" @keyup.enter="handleAddBrand" />
+        <n-button type="primary" @click="handleAddBrand">添加团牌</n-button>
+      </n-space>
+      <n-space :size="8" :wrap-item="false" align="center">
+        <n-input v-model:value="brandFilter.keyword" clearable placeholder="搜索团牌/团长" style="width: 180px" />
+        <n-select v-model:value="brandFilter.status" :options="brandStatusOptions" style="width: 120px" />
+      </n-space>
+    </div>
+    <div class="brand-tip">收支明细中填写新团牌时会自动创建；团牌拉黑后，录入该团牌的记录将自动标记拉黑</div>
+    <n-data-table :columns="rosterColumns" :data="filteredRosterRows" :pagination="false" :max-height="420" />
   </n-modal>
 
   <n-modal v-model:show="showHidden" preset="card" title="已隐藏副本" style="max-width: 560px">
@@ -95,10 +106,11 @@ interface DungeonTableRow {
 }
 
 interface RosterRow {
-  groupBrand: string
-  leaderId: string
+  id: string
+  name: string
   blacklisted: boolean
-  _span: number
+  leaders: string[]
+  recordCount: number
 }
 
 const tracker = useTracker()
@@ -177,21 +189,86 @@ watch(tableRows, (rows) => {
 }, { immediate: true })
 
 const rosterRows = computed<RosterRow[]>(() => {
-  const rows = tracker.getGroupBrandRoster()
-  const result: RosterRow[] = []
-  let i = 0
-  while (i < rows.length) {
-    const brand = rows[i].groupBrand
-    let j = i
-    while (j < rows.length && rows[j].groupBrand === brand) j++
-    const count = j - i
-    for (let k = i; k < j; k++) {
-      result.push({ ...rows[k], _span: k === i ? count : 0 })
-    }
-    i = j
-  }
-  return result
+  const countMap = new Map<string, number>()
+  tracker.records.value.forEach((r) => {
+    const name = r.groupBrand?.trim()
+    if (!name) return
+    countMap.set(name, (countMap.get(name) ?? 0) + 1)
+  })
+  return tracker.groupBrands.value
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+    .map((brand) => ({
+      id: brand.id,
+      name: brand.name,
+      blacklisted: Boolean(brand.blacklisted),
+      leaders: tracker.getLeadersForBrand(brand.name),
+      recordCount: countMap.get(brand.name) ?? 0
+    }))
 })
+
+const brandForm = reactive({ name: '' })
+const brandFilter = reactive<{ keyword: string; status: 'all' | 'black' | 'normal' }>({ keyword: '', status: 'all' })
+
+const brandStatusOptions = [
+  { label: '全部状态', value: 'all' },
+  { label: '黑名单', value: 'black' },
+  { label: '未拉黑', value: 'normal' }
+]
+
+const filteredRosterRows = computed<RosterRow[]>(() => {
+  const kw = brandFilter.keyword.trim().toLowerCase()
+  return rosterRows.value.filter((row) => {
+    if (brandFilter.status === 'black' && !row.blacklisted) return false
+    if (brandFilter.status === 'normal' && row.blacklisted) return false
+    if (kw) {
+      const matchName = row.name.toLowerCase().includes(kw)
+      const matchLeader = row.leaders.some((leader) => leader.toLowerCase().includes(kw))
+      if (!matchName && !matchLeader) return false
+    }
+    return true
+  })
+})
+
+watch(showRoster, (value) => {
+  if (!value) return
+  brandForm.name = ''
+  brandFilter.keyword = ''
+  brandFilter.status = 'all'
+})
+
+function handleAddBrand() {
+  const result = tracker.addGroupBrand(brandForm.name)
+  if (!result.ok) {
+    dialog.warning({
+      title: '提示',
+      content: result.message ?? '操作失败',
+      positiveText: '知道了'
+    })
+    return
+  }
+  brandForm.name = ''
+}
+
+function handleToggleBrandBlacklist(row: RosterRow) {
+  tracker.setGroupBrandBlacklisted(row.id, !row.blacklisted)
+}
+
+function handleDeleteBrand(row: RosterRow) {
+  const warning = row.recordCount > 0
+    ? `该团牌已有 ${row.recordCount} 条历史记录，删除后历史记录仍保留团牌文本，但该团牌不再出现在下拉选项中。`
+    : '该团牌暂无历史记录。'
+  dialog.error({
+    title: '删除确认',
+    content: () => h('div', { style: 'white-space: pre-wrap; line-height: 1.6;' },
+      `确认删除团牌「${row.name}」吗？\n\n${warning}`),
+    positiveText: '确认删除',
+    negativeText: '取消',
+    onPositiveClick: () => {
+      tracker.deleteGroupBrand(row.id)
+    }
+  })
+}
 
 function handleAdd() {
   const result = tracker.addDungeon({ ...form })
@@ -345,15 +422,35 @@ const columns: DataTableColumns<DungeonTableRow> = [
 const rosterColumns: DataTableColumns<RosterRow> = [
   {
     title: '团牌',
-    key: 'groupBrand',
-    rowSpan: (row) => row._span
+    key: 'name',
+    width: 160
   },
-  { title: '团长ID', key: 'leaderId' },
+  {
+    title: '历史团长',
+    key: 'leaders',
+    render: (row) => {
+      if (row.leaders.length === 0) return '-'
+      return h('div', { style: 'display:flex;flex-wrap:wrap;gap:4px;' },
+        row.leaders.map((leader) => h(NTag, { size: 'small', key: leader }, { default: () => leader })))
+    }
+  },
   {
     title: '状态',
     key: 'blacklisted',
-    rowSpan: (row) => row._span,
+    width: 90,
     render: (row) => (row.blacklisted ? h(NTag, { type: 'error', size: 'small' }, { default: () => '黑名单' }) : '-')
+  },
+  {
+    title: '操作',
+    key: 'actions',
+    width: 170,
+    render: (row) => h('div', { class: 'action-group' }, [
+      h('button', {
+        class: row.blacklisted ? 'mini-btn' : 'mini-btn warning',
+        onClick: () => handleToggleBrandBlacklist(row)
+      }, row.blacklisted ? '取消拉黑' : '拉黑'),
+      h('button', { class: 'mini-btn danger', onClick: () => handleDeleteBrand(row) }, '删除')
+    ])
   }
 ]
 </script>
@@ -376,6 +473,19 @@ const rosterColumns: DataTableColumns<RosterRow> = [
   color: #999;
   font-size: 12px;
   line-height: 1.5;
+}
+.brand-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.brand-tip {
+  color: #999;
+  font-size: 12px;
+  line-height: 1.5;
+  margin-bottom: 12px;
 }
 .hidden-list {
   display: flex;

@@ -13,7 +13,9 @@ function sanitizeState(input: unknown): StoreState {
     wineBury: Array.isArray(parsed?.wineBury) ? parsed!.wineBury : undefined,
     dungeonOrder: Array.isArray(parsed?.dungeonOrder) ? parsed!.dungeonOrder : undefined,
     specialDrops: Array.isArray(parsed?.specialDrops) ? parsed!.specialDrops : undefined,
-    seasons: Array.isArray(parsed?.seasons) ? parsed!.seasons : undefined
+    seasons: Array.isArray(parsed?.seasons) ? parsed!.seasons : undefined,
+    groupBrands: Array.isArray(parsed?.groupBrands) ? parsed!.groupBrands : undefined,
+    buffCalc: parsed?.buffCalc && typeof parsed.buffCalc === 'object' ? parsed!.buffCalc : undefined
   }
 }
 

@@ -1,10 +1,11 @@
 import { computed, ref } from 'vue'
 import { DEFAULT_DUNGEONS, DIFFICULTY_OPTIONS, FIXED_DUNGEON_LABEL, PLAYER_OPTIONS, SCHOOLS, SERVERS } from '../constants/game'
 import { DEFAULT_SPECIAL_DROPS } from '../utils/specialDrop'
+import { BUFF_DEFS, BUFF_UNIT_DEFAULTS, type BuffStat } from '../constants/buffCalc'
 import { loadState, saveState } from '../services/storage'
 import { getCurrentMonthRange, getCurrentWeekRange, toYmd } from '../utils/date'
 import { normalizePersonName } from '../utils/leader'
-import type { Dungeon, RecordItem, Role, Season, SpecialDrop, StoreState, WineBuryItem } from '../types'
+import type { BuffCalcState, Dungeon, GroupBrand, RecordItem, Role, Season, SpecialDrop, StoreState, WineBuryItem } from '../types'
 
 function makeId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -18,10 +19,25 @@ const columnConfig = ref<string[] | undefined>(undefined)
 const wineBury = ref<WineBuryItem[]>([])
 const specialDrops = ref<SpecialDrop[]>([])
 const seasons = ref<Season[]>([])
+const groupBrands = ref<GroupBrand[]>([])
+const buffCalc = ref<BuffCalcState>(normalizeBuffCalc(undefined))
 const newlyAddedRoleIds = ref<Set<string>>(new Set())
+
+function normalizeBuffCalc(input?: Partial<BuffCalcState> | null): BuffCalcState {
+  return {
+    unitSpirit: Number(input?.unitSpirit) > 0 ? Math.floor(Number(input!.unitSpirit)) : BUFF_UNIT_DEFAULTS.spirit,
+    unitVitality: Number(input?.unitVitality) > 0 ? Math.floor(Number(input!.unitVitality)) : BUFF_UNIT_DEFAULTS.vitality,
+    // 与默认值合并：后续版本新增的 buff 自动补齐默认数值
+    buffValues: { ...Object.fromEntries(BUFF_DEFS.map((d) => [d.key, d.defaultValue])), ...(input?.buffValues ?? {}) },
+    buffDefaults: { ...(input?.buffDefaults ?? {}) },
+    roleBase: { ...(input?.roleBase ?? {}) },
+    roleSelected: { ...(input?.roleSelected ?? {}) }
+  }
+}
 
 const roleMap = computed(() => new Map(roles.value.map((r) => [r.id, r])))
 const dungeonMap = computed(() => new Map(dungeons.value.map((d) => [d.id, d])))
+const groupBrandMap = computed(() => new Map(groupBrands.value.map((b) => [b.name, b])))
 
 const roleOptions = computed(() => roles.value.map((r) => ({ label: `${r.id}（${r.server}/${r.school}）`, value: r.id })))
 const roleOptionsForAddRecord = computed(() => {
@@ -151,6 +167,7 @@ function init() {
 
   specialDrops.value = Array.isArray(state.specialDrops) ? state.specialDrops : []
   seasons.value = Array.isArray(state.seasons) ? state.seasons : []
+  buffCalc.value = normalizeBuffCalc(state.buffCalc)
 
   // 清理已从 DEFAULT_SPECIAL_DROPS 移除的旧默认条目
   const validDefaultNames = new Set(DEFAULT_SPECIAL_DROPS.map((d) => d.itemName))
@@ -166,8 +183,6 @@ function init() {
   if (missingDefaults.length > 0) {
     const seeded: SpecialDrop[] = missingDefaults.map((d) => ({
       id: makeId('drop_default'),
-      dungeonPlayers: '10人',
-      dungeonDifficulty: '普通',
       dungeonName: '通用',
       itemName: d.itemName,
       iconBase64: `preset:${d.iconKey}`,
@@ -186,7 +201,8 @@ function init() {
       dropsTouched = true
     }
   })
-  if (dropsTouched) persist()
+
+  if (dedupeSpecialDropsAndRemapRecords()) dropsTouched = true
 
   if (dungeons.value.length === 0) {
     dungeons.value = DEFAULT_DUNGEONS.map((item) => ({
@@ -211,10 +227,62 @@ function init() {
     persist()
   }
   reconcileDungeonOrder()
+
+  // 团牌数据：优先读持久化数据；缺失时从历史记录中提取（一次性迁移）
+  // 注意：必须放在 dungeonOrder 加载之后，避免迁移时把未加载完的状态写回磁盘
+  let brandsTouched = false
+  if (Array.isArray(state.groupBrands)) {
+    groupBrands.value = state.groupBrands
+  } else {
+    groupBrands.value = seedGroupBrandsFromRecords(records.value)
+    brandsTouched = true
+  }
+
+  // 各类迁移统一在状态全部加载完成后落盘
+  if (dropsTouched || brandsTouched) persist()
 }
 
 function persist() {
-  saveState({ roles: roles.value, dungeons: dungeons.value, records: records.value, columnConfig: columnConfig.value, wineBury: wineBury.value, dungeonOrder: dungeonOrder.value, specialDrops: specialDrops.value, seasons: seasons.value })
+  saveState({ roles: roles.value, dungeons: dungeons.value, records: records.value, columnConfig: columnConfig.value, wineBury: wineBury.value, dungeonOrder: dungeonOrder.value, specialDrops: specialDrops.value, seasons: seasons.value, groupBrands: groupBrands.value, buffCalc: buffCalc.value })
+}
+
+// 特殊掉落与人数/难度解绑：同副本名称下的同名掉落视为同一条，
+// 去重（保留第一条）并把收支记录里指向被合并掉落的 specialDropIds 重定向到保留的那条。
+// 幂等，可在初始化与导入数据时重复执行。
+function dedupeSpecialDropsAndRemapRecords(): boolean {
+  const dropIdRemap = new Map<string, string>()
+  const dropKeyToId = new Map<string, string>()
+  const dedupedDrops: SpecialDrop[] = []
+  specialDrops.value.forEach((d) => {
+    if (d.matchAll) { dedupedDrops.push(d); return }
+    const key = `${d.dungeonName}|${d.itemName}`
+    const keptId = dropKeyToId.get(key)
+    if (keptId) {
+      dropIdRemap.set(d.id, keptId)
+    } else {
+      dropKeyToId.set(key, d.id)
+      dedupedDrops.push(d)
+    }
+  })
+  if (dropIdRemap.size === 0) return false
+  specialDrops.value = dedupedDrops
+  records.value.forEach((r) => {
+    if (!r.specialDropIds || r.specialDropIds.length === 0) return
+    r.specialDropIds = Array.from(new Set(r.specialDropIds.map((id) => dropIdRemap.get(id) ?? id)))
+  })
+  return true
+}
+
+function seedGroupBrandsFromRecords(recordList: RecordItem[]): GroupBrand[] {
+  const map = new Map<string, boolean>()
+  recordList.forEach((r) => {
+    const name = r.groupBrand?.trim()
+    if (!name) return
+    map.set(name, (map.get(name) ?? false) || Boolean(r.blacklisted))
+  })
+  return Array.from(map.entries())
+    .sort(([a], [b]) => a.localeCompare(b, 'zh-CN'))
+    .map(([name, blacklisted]) => ({ id: makeId('brand'), name, blacklisted }))
 }
 
 function addRole(payload: Role): { ok: boolean; message?: string } {
@@ -378,6 +446,43 @@ function setDungeonOrder(orderedNames: string[]): { ok: boolean } {
   return { ok: true }
 }
 
+function addGroupBrand(name: string): { ok: boolean; message?: string } {
+  const trimmed = name.trim()
+  if (!trimmed) return { ok: false, message: '团牌名称不能为空' }
+  if (groupBrandMap.value.has(trimmed)) return { ok: false, message: '团牌已存在' }
+  groupBrands.value.push({ id: makeId('brand'), name: trimmed, blacklisted: false })
+  persist()
+  return { ok: true }
+}
+
+function setGroupBrandBlacklisted(id: string, blacklisted: boolean): { ok: boolean; message?: string } {
+  const target = groupBrands.value.find((b) => b.id === id)
+  if (!target) return { ok: false, message: '团牌不存在' }
+  target.blacklisted = blacklisted
+  persist()
+  return { ok: true }
+}
+
+function deleteGroupBrand(id: string): { ok: boolean; message?: string } {
+  const target = groupBrands.value.find((b) => b.id === id)
+  if (!target) return { ok: false, message: '团牌不存在' }
+  groupBrands.value = groupBrands.value.filter((b) => b.id !== id)
+  persist()
+  return { ok: true }
+}
+
+// 录入/编辑收支记录时同步团牌库：新团牌自动创建，拉黑状态以记录表单为准
+function syncGroupBrandFromRecord(groupBrand?: string, blacklisted?: boolean) {
+  const name = groupBrand?.trim()
+  if (!name) return
+  const existing = groupBrandMap.value.get(name)
+  if (existing) {
+    existing.blacklisted = Boolean(blacklisted)
+  } else {
+    groupBrands.value.push({ id: makeId('brand'), name, blacklisted: Boolean(blacklisted) })
+  }
+}
+
 function addRecord(payload: {
   roleId: string
   dungeonId: string
@@ -406,6 +511,7 @@ function addRecord(payload: {
     blackPerson: normalizePersonName(payload.blackPerson) || undefined,
     specialDropIds: payload.specialDropIds && payload.specialDropIds.length > 0 ? payload.specialDropIds.slice() : undefined
   })
+  syncGroupBrandFromRecord(payload.groupBrand, payload.blacklisted)
   persist()
 }
 
@@ -426,6 +532,7 @@ function updateRecord(
   target.blacklisted = Boolean(payload.blacklisted)
   target.blackPerson = normalizePersonName(payload.blackPerson) || undefined
   target.specialDropIds = payload.specialDropIds && payload.specialDropIds.length > 0 ? payload.specialDropIds.slice() : undefined
+  syncGroupBrandFromRecord(payload.groupBrand, payload.blacklisted)
   persist()
 }
 
@@ -434,15 +541,25 @@ function deleteRecord(id: string) {
   persist()
 }
 
+function hasDuplicateSpecialDrop(dungeonName: string, itemName: string, excludeId?: string): boolean {
+  return specialDrops.value.some((d) =>
+    !d.matchAll &&
+    d.id !== excludeId &&
+    d.dungeonName === dungeonName &&
+    d.itemName === itemName
+  )
+}
+
 function addSpecialDrop(payload: Omit<SpecialDrop, 'id'>): { ok: boolean; message?: string } {
   const itemName = payload.itemName.trim()
   const dungeonName = payload.dungeonName.trim()
   if (!dungeonName) return { ok: false, message: '副本名称不能为空' }
   if (!itemName) return { ok: false, message: '掉落名称不能为空' }
+  if (hasDuplicateSpecialDrop(dungeonName, itemName)) {
+    return { ok: false, message: '该副本已存在同名掉落' }
+  }
   specialDrops.value.push({
     id: makeId('drop'),
-    dungeonPlayers: payload.dungeonPlayers,
-    dungeonDifficulty: payload.dungeonDifficulty,
     dungeonName,
     itemName,
     iconBase64: payload.iconBase64
@@ -468,8 +585,11 @@ function updateSpecialDrop(id: string, payload: Omit<SpecialDrop, 'id'>): { ok: 
   const dungeonName = payload.dungeonName.trim()
   if (!dungeonName) return { ok: false, message: '副本名称不能为空' }
   if (!itemName) return { ok: false, message: '掉落名称不能为空' }
-  target.dungeonPlayers = payload.dungeonPlayers
-  target.dungeonDifficulty = payload.dungeonDifficulty
+  if (hasDuplicateSpecialDrop(dungeonName, itemName, id)) {
+    return { ok: false, message: '该副本已存在同名掉落' }
+  }
+  target.dungeonPlayers = undefined
+  target.dungeonDifficulty = undefined
   target.dungeonName = dungeonName
   target.itemName = itemName
   target.iconBase64 = payload.iconBase64
@@ -525,6 +645,52 @@ function deleteSeason(id: string): { ok: boolean } {
   return { ok: true }
 }
 
+function setBuffCalcUnit(stat: BuffStat, value: number) {
+  const v = Math.max(1, Math.floor(Number(value) || 0))
+  if (stat === 'spirit') buffCalc.value.unitSpirit = v
+  else buffCalc.value.unitVitality = v
+  persist()
+}
+
+function setBuffCalcValue(key: string, value: number) {
+  buffCalc.value.buffValues[key] = Math.max(0, Math.floor(Number(value) || 0))
+  persist()
+}
+
+function resetBuffCalcValues() {
+  // 优先恢复到用户自定义默认值，未设置过的 buff 回退内置默认
+  buffCalc.value.buffValues = {
+    ...Object.fromEntries(BUFF_DEFS.map((d) => [d.key, d.defaultValue])),
+    ...buffCalc.value.buffDefaults
+  }
+  persist()
+}
+
+function saveBuffCalcDefaults() {
+  buffCalc.value.buffDefaults = { ...buffCalc.value.buffValues }
+  persist()
+}
+
+function setBuffCalcRoleBase(roleId: string, value: number) {
+  buffCalc.value.roleBase[roleId] = Math.max(0, Math.floor(Number(value) || 0))
+  persist()
+}
+
+const buffDefMap = new Map(BUFF_DEFS.map((d) => [d.key, d]))
+
+function toggleBuffCalcRoleBuff(roleId: string, key: string) {
+  const list = buffCalc.value.roleSelected[roleId] ?? []
+  if (list.includes(key)) {
+    buffCalc.value.roleSelected[roleId] = list.filter((k) => k !== key)
+  } else {
+    // 互斥组内同时只能启用一个：选中时自动取消同组其他 buff
+    const group = buffDefMap.get(key)?.group
+    const kept = group ? list.filter((k) => buffDefMap.get(k)?.group !== group) : list
+    buffCalc.value.roleSelected[roleId] = [...kept, key]
+  }
+  persist()
+}
+
 const FREQUENT_GROUP_BRAND_THRESHOLD = 5
 
 const frequentGroupBrands = computed(() => {
@@ -564,7 +730,10 @@ function importState(state: StoreState) {
   wineBury.value = Array.isArray(state.wineBury) ? state.wineBury : []
   specialDrops.value = Array.isArray(state.specialDrops) ? state.specialDrops : []
   seasons.value = Array.isArray(state.seasons) ? state.seasons : []
+  groupBrands.value = Array.isArray(state.groupBrands) ? state.groupBrands : seedGroupBrandsFromRecords(records.value)
+  buffCalc.value = normalizeBuffCalc(state.buffCalc)
   dungeonOrder.value = Array.isArray(state.dungeonOrder) ? state.dungeonOrder.slice() : []
+  dedupeSpecialDropsAndRemapRecords()
   reconcileDungeonOrder()
   persist()
 }
@@ -584,8 +753,11 @@ function getGroupBrandRoster() {
   Array.from(map.entries())
     .sort(([a], [b]) => a.localeCompare(b, 'zh-CN'))
     .forEach(([groupBrand, { blacklisted, leaders }]) => {
+      // 拉黑状态以团牌库为准，记录级标记仅作为团牌已删除时的兜底
+      const entity = groupBrandMap.value.get(groupBrand)
+      const resolved = entity ? Boolean(entity.blacklisted) : blacklisted
       Array.from(leaders).sort().forEach((leaderId) => {
-        result.push({ groupBrand, leaderId, blacklisted })
+        result.push({ groupBrand, leaderId, blacklisted: resolved })
       })
     })
   return result
@@ -612,8 +784,10 @@ function queryRecords(filters: { roleId: string | null; dungeonId: string | null
     .map((r) => {
       const role = roleMap.value.get(r.roleId)
       const dungeon = dungeonMap.value.get(r.dungeonId)
+      const brandEntity = r.groupBrand ? groupBrandMap.value.get(r.groupBrand.trim()) : undefined
       return {
         ...r,
+        blacklisted: brandEntity ? Boolean(brandEntity.blacklisted) : Boolean(r.blacklisted),
         leaderId: normalizePersonName(r.leaderId) || undefined,
         blackPerson: normalizePersonName(r.blackPerson) || undefined,
         roleText: role ? `${role.id}（${role.server}/${role.school}）` : '已删除角色',
@@ -710,6 +884,17 @@ export function useTracker() {
     deleteSeason,
     frequentGroupBrands,
     getLeadersForBrand,
+    groupBrands,
+    addGroupBrand,
+    setGroupBrandBlacklisted,
+    deleteGroupBrand,
+    buffCalc,
+    setBuffCalcUnit,
+    setBuffCalcValue,
+    resetBuffCalcValues,
+    saveBuffCalcDefaults,
+    setBuffCalcRoleBase,
+    toggleBuffCalcRoleBuff,
     persist,
     addRole,
     updateRole,

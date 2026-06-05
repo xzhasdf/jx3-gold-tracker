@@ -17,6 +17,8 @@ import icon2238 from '../assets/icon/2238.png'
 import icon2256 from '../assets/icon/2256.png'
 import icon2272 from '../assets/icon/2272.png'
 import icon2250 from '../assets/icon/2250.png'
+import icon2244 from '../assets/icon/2244.png'
+import icon2260 from '../assets/icon/2260.png'
 import iconDefaultDrop from '../assets/icon/13.png'
 
 export const DROP_PRESET_ICONS: Record<string, string> = {
@@ -39,6 +41,8 @@ export const DROP_PRESET_ICONS: Record<string, string> = {
   '2256': icon2256,
   '2272': icon2272,
   '2250': icon2250,
+  '2244': icon2244,
+  '2260': icon2260,
 }
 
 // 「图片选择」面板暴露给用户的预设
@@ -52,6 +56,13 @@ export function resolveDropIcon(stored: string | undefined): string {
   return stored
 }
 
+// 玄晶名称统一用橙色（装备品质色）展示
+export const XUANJING_COLOR = '#ff8000'
+
+export function dropNameColor(itemName: string | undefined): string | undefined {
+  return itemName?.includes('玄晶') ? XUANJING_COLOR : undefined
+}
+
 // 首次进入时种入的默认通用掉落
 export const DEFAULT_SPECIAL_DROPS: {
   itemName: string
@@ -62,6 +73,8 @@ export const DEFAULT_SPECIAL_DROPS: {
   { itemName: '赐清平', iconKey: '10902', matchPlayers: '10人' },
   { itemName: '朝露昙华', iconKey: '11273', matchPlayers: '10人' },
   { itemName: '玄晶', iconKey: '2589' },
+  { itemName: '纵横之剑·捭', iconKey: '2260' },
+  { itemName: '纵横之剑·阖', iconKey: '2244' },
   { itemName: '寸险律·残卷', iconKey: '2265' },
   { itemName: '月朔实录·残卷', iconKey: '2245' },
   { itemName: '惊羽诀·秘卷', iconKey: '2273' },

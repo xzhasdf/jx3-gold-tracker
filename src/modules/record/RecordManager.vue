@@ -146,7 +146,7 @@
               :checked="addForm.specialDropIds.includes(d.id)"
               @update:checked="(v: boolean) => toggleAddDrop(d.id, v)"
             >
-              <span class="drop-checkbox-label">
+              <span class="drop-checkbox-label" :style="{ color: dropNameColor(d.itemName) }">
                 <img :src="resolveDropIcon(d.iconBase64)" class="drop-checkbox-icon" />
                 {{ d.itemName }}
               </span>
@@ -170,7 +170,16 @@
         <n-form-item label="团牌" class="compact-group-item">
           <n-space vertical :size="6">
             <n-space>
-              <n-input v-model:value="addForm.groupBrand" :style="fieldStyle" />
+              <n-select
+                v-model:value="addGroupBrandValue"
+                :options="groupBrandSelectOptions"
+                :render-label="renderBrandOption"
+                filterable
+                tag
+                clearable
+                placeholder="选择或输入新团牌"
+                :style="fieldStyle"
+              />
               <n-checkbox v-if="addForm.groupBrand.trim()" v-model:checked="addForm.blacklisted">拉黑</n-checkbox>
             </n-space>
             <ExpandableTagRow
@@ -227,27 +236,22 @@
       <n-form-item label="副本">
         <n-cascader v-model:value="editForm.dungeonId" :options="editDungeonCascaderOptions" :render-label="renderDungeonCascaderLabel" check-strategy="child" filterable expand-trigger="hover" :style="fieldStyle" />
       </n-form-item>
-      <n-form-item v-if="matchedEditDrops.length > 0 || editOrphanDropIds.length > 0" label="特殊掉落" class="form-item-drops">
+      <n-form-item v-if="matchedEditDrops.length > 0" label="特殊掉落" class="form-item-drops">
         <div class="drop-stack">
           <n-checkbox v-model:checked="editForm.hasSpecialDrop">本次有特殊掉落</n-checkbox>
-          <template v-if="editForm.hasSpecialDrop">
-            <div v-if="matchedEditDrops.length > 0" class="drop-checkbox-group">
-              <n-checkbox
-                v-for="d in matchedEditDrops"
-                :key="d.id"
-                :checked="editForm.specialDropIds.includes(d.id)"
-                @update:checked="(v: boolean) => toggleEditDrop(d.id, v)"
-              >
-                <span class="drop-checkbox-label">
-                  <img :src="resolveDropIcon(d.iconBase64)" class="drop-checkbox-icon" />
-                  {{ d.itemName }}
-                </span>
-              </n-checkbox>
-            </div>
-            <div v-if="editOrphanDropIds.length > 0" class="orphan-drops">
-              <span v-for="id in editOrphanDropIds" :key="id" class="orphan-drop-tag">掉落已删除</span>
-            </div>
-          </template>
+          <div v-if="editForm.hasSpecialDrop" class="drop-checkbox-group">
+            <n-checkbox
+              v-for="d in matchedEditDrops"
+              :key="d.id"
+              :checked="editForm.specialDropIds.includes(d.id)"
+              @update:checked="(v: boolean) => toggleEditDrop(d.id, v)"
+            >
+              <span class="drop-checkbox-label" :style="{ color: dropNameColor(d.itemName) }">
+                <img :src="resolveDropIcon(d.iconBase64)" class="drop-checkbox-icon" />
+                {{ d.itemName }}
+              </span>
+            </n-checkbox>
+          </div>
         </div>
       </n-form-item>
       <n-form-item label="收入">
@@ -260,7 +264,16 @@
         <n-form-item label="团牌" class="compact-group-item">
           <n-space vertical :size="6">
             <n-space>
-              <n-input v-model:value="editForm.groupBrand" :style="fieldStyle" />
+              <n-select
+                v-model:value="editGroupBrandValue"
+                :options="groupBrandSelectOptions"
+                :render-label="renderBrandOption"
+                filterable
+                tag
+                clearable
+                placeholder="选择或输入新团牌"
+                :style="fieldStyle"
+              />
               <n-checkbox v-if="editForm.groupBrand.trim()" v-model:checked="editForm.blacklisted">拉黑</n-checkbox>
             </n-space>
             <ExpandableTagRow
@@ -345,7 +358,7 @@ import { getTodayRange, getYesterdayRange, toYmd } from '../../utils/date'
 import { splitGold, toGold } from '../../utils/money'
 import MoneyValue from '../shared/MoneyValue.vue'
 import RecordOcrModal from './RecordOcrModal.vue'
-import { resolveDropIcon } from '../../utils/specialDrop'
+import { dropNameColor, resolveDropIcon } from '../../utils/specialDrop'
 import { normalizePersonName } from '../../utils/leader'
 import SchoolBadge from '../shared/SchoolBadge.vue'
 import ExpandableTagRow from '../shared/ExpandableTagRow.vue'
@@ -434,9 +447,8 @@ function getMatchedSpecialDrops(dungeonId: string | null) {
         if (drop.matchPlayers && drop.matchPlayers !== dungeon.players) return false
         return true
       }
-      return drop.dungeonPlayers === dungeon.players &&
-        drop.dungeonDifficulty === dungeon.difficulty &&
-        drop.dungeonName === dungeon.name
+      // 掉落不区分人数/难度：同名副本共用同一套掉落
+      return drop.dungeonName === dungeon.name
     })
     .sort((a, b) => Number(Boolean(b.matchAll)) - Number(Boolean(a.matchAll)))
 }
@@ -445,10 +457,6 @@ const matchedAddDrops = computed(() => getMatchedSpecialDrops(addForm.dungeonId)
 const matchedEditDrops = computed(() => getMatchedSpecialDrops(editForm.dungeonId))
 const specialDropMap = computed(() => new Map(tracker.specialDrops.value.map((d) => [d.id, d])))
 
-const editOrphanDropIds = computed(() => {
-  const allIds = new Set(tracker.specialDrops.value.map((d) => d.id))
-  return editForm.specialDropIds.filter((id) => !allIds.has(id))
-})
 
 function toggleAddDrop(id: string, checked: boolean) {
   if (checked) {
@@ -631,10 +639,41 @@ const editBrandLeaders = computed(() => tracker.getLeadersForBrand(editForm.grou
 
 const blacklistedBrandSet = computed(() => {
   const set = new Set<string>()
-  tracker.getGroupBrandRoster().forEach((item) => {
-    if (item.blacklisted) set.add(item.groupBrand.trim())
+  tracker.groupBrands.value.forEach((b) => {
+    if (b.blacklisted) set.add(b.name)
   })
   return set
+})
+
+const groupBrandSelectOptions = computed(() =>
+  tracker.groupBrands.value
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+    .map((b) => ({ label: b.name, value: b.name, blacklisted: Boolean(b.blacklisted) }))
+)
+
+function renderBrandOption(option: { label?: string | number; blacklisted?: boolean }) {
+  const label = String(option.label ?? '')
+  if (!option.blacklisted) return label
+  return h('span', { style: 'display:inline-flex;align-items:center;gap:6px;' }, [
+    h('span', label),
+    h(NTag, {
+      type: 'error',
+      size: 'small',
+      style: 'transform: scale(0.9); transform-origin: left center;'
+    }, { default: () => '黑名单' })
+  ])
+}
+
+// n-select 需要 null 表示空值，表单内部仍以字符串保存
+const addGroupBrandValue = computed<string | null>({
+  get: () => addForm.groupBrand || null,
+  set: (v) => { addForm.groupBrand = v ?? '' }
+})
+
+const editGroupBrandValue = computed<string | null>({
+  get: () => editForm.groupBrand || null,
+  set: (v) => { editForm.groupBrand = v ?? '' }
 })
 
 const showAddBlacklistedHint = computed(() => {
@@ -939,7 +978,9 @@ function openEdit(row: (typeof rows.value)[number]) {
   editForm.remark = row.remark || ''
   editForm.blacklisted = Boolean(row.blacklisted)
   editForm.blackPerson = normalizePersonName(row.blackPerson)
-  const existingDrops = Array.isArray(row.specialDropIds) ? row.specialDropIds : []
+  // 已删除的掉落不再出现在编辑表单中（保存时也会一并清理掉失效引用）
+  const allDropIds = new Set(tracker.specialDrops.value.map((d) => d.id))
+  const existingDrops = (Array.isArray(row.specialDropIds) ? row.specialDropIds : []).filter((id) => allDropIds.has(id))
   editForm.specialDropIds = existingDrops.slice()
   editForm.hasSpecialDrop = existingDrops.length > 0
   showEdit.value = true
@@ -948,8 +989,7 @@ function openEdit(row: (typeof rows.value)[number]) {
 function saveEdit() {
   let dropIds: string[] = []
   if (editForm.hasSpecialDrop) {
-    const matched = editForm.specialDropIds.filter((id) => matchedEditDrops.value.some((d) => d.id === id))
-    dropIds = [...matched, ...editOrphanDropIds.value]
+    dropIds = editForm.specialDropIds.filter((id) => matchedEditDrops.value.some((d) => d.id === id))
   }
   tracker.updateRecord(editingId.value, {
     date: editForm.date ? toYmd(editForm.date) : undefined,
@@ -1040,7 +1080,7 @@ const allColumns = computed<DataTableColumns<(typeof rows.value)[number]>>(() =>
               }
               return h('span', { style: 'display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#555;' }, [
                 h('img', { src: resolveDropIcon(drop.iconBase64), style: 'width:16px;height:16px;border-radius:3px;object-fit:cover;flex-shrink:0;' }),
-                h('span', { style: 'white-space:nowrap;' }, drop.itemName)
+                h('span', { style: `white-space:nowrap;${dropNameColor(drop.itemName) ? `color:${dropNameColor(drop.itemName)};` : ''}` }, drop.itemName)
               ])
             }))
           : null
@@ -1215,23 +1255,6 @@ const columns = computed(() =>
   height: 18px;
   object-fit: cover;
   border-radius: 3px;
-}
-
-.orphan-drops {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.orphan-drop-tag {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  font-size: 12px;
-  color: #999;
-  background: #f5f5f7;
-  border: 1px dashed #d9d9d9;
-  border-radius: 3px;
-  text-decoration: line-through;
 }
 
 .record-dungeon-cell {

@@ -104,7 +104,7 @@ import BlackPersonTrendPage from './BlackPersonTrendPage.vue'
 import { DATE_RANGE_SHORTCUTS } from '../../constants/dateShortcuts'
 import MoneyValue from '../shared/MoneyValue.vue'
 import SchoolBadge from '../shared/SchoolBadge.vue'
-import { resolveDropIcon } from '../../utils/specialDrop'
+import { dropNameColor, resolveDropIcon } from '../../utils/specialDrop'
 
 interface OverviewRow {
   key: string
@@ -281,7 +281,7 @@ const dropStats = computed<DropStat[]>(() => {
       const scopeLabel = drop
         ? drop.matchAll
           ? (drop.matchPlayers ? `通用（${drop.matchPlayers}）` : '通用')
-          : `${drop.dungeonPlayers}${drop.dungeonDifficulty}${drop.dungeonName}`
+          : drop.dungeonName
         : '—'
       return {
         key: id,
@@ -317,7 +317,7 @@ const dropColumns: DataTableColumns<DropStat> = [
   { title: '图标', key: 'icon', width: 80, render: (row) => h('img', { src: resolveDropIcon(row.iconBase64), style: 'width:32px;height:32px;border-radius:4px;object-fit:cover;' }) },
   { title: '掉落名称', key: 'itemName', render: (row) => row.isOrphan
       ? h('span', { style: 'color:#999;text-decoration:line-through;' }, row.itemName)
-      : h('span', null, row.itemName) },
+      : h('span', dropNameColor(row.itemName) ? { style: `color:${dropNameColor(row.itemName)};` } : null, row.itemName) },
   { title: '适用范围', key: 'scopeLabel', width: 200 },
   { title: '总次数', key: 'totalCount', width: 120, sorter: (a, b) => a.totalCount - b.totalCount, defaultSortOrder: 'descend' }
 ]

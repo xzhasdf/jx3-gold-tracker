@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.2.11</span>
+          <span class="header-version">v1.2.12</span>
         </div>
         <n-dropdown trigger="click" :options="settingOptions" @select="handleSettingSelect">
           <button class="gear-btn" type="button" aria-label="设置">⚙</button>
@@ -128,6 +128,20 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.2.12',
+    items: [
+      '副本管理「团牌名单」升级为「团牌管理」：可新增、拉黑/取消拉黑、删除团牌，支持团牌/团长模糊搜索与黑名单状态筛选',
+      '收支记录的团牌改为下拉选择（可搜索），直接输入新团牌保存时自动创建；黑名单团牌在下拉中带红色标记',
+      '团牌拉黑状态以团牌库为准，历史记录、名单、提示统一生效；老数据自动从历史记录提取团牌（一次性迁移）',
+      '特殊掉落不再区分人数/难度，同名副本共用同一套掉落；旧的重复掉落自动合并，历史记录引用自动重定向（启动与导入数据时均会执行）',
+      '编辑收支记录不再显示「掉落已删除」标签，保存时自动清理失效掉落引用',
+      '通用掉落新增「纵横之剑·捭」「纵横之剑·阖」；玄晶名称全局橙色（#ff8000）显示',
+      '小工具新增「增益计算」：按门派自动套用根骨（万花/七秀/五毒/长歌/药宗）或体质（天策/少林/明教/苍云），层数 =（基础属性 + 已启用增益）÷ 每层所需，向下取整',
+      '增益计算支持点击修改单位属性与角色基础属性、点选启用增益（高粱酒系列、粥/汤、上品/中品丹药互斥），「额外增益管理」可调数值并支持设为默认值/恢复默认值',
+      '导出数据补齐副本排序、特殊掉落配置；团牌库与增益计算数据均纳入导入导出',
+    ]
+  },
   {
     version: 'v1.2.11',
     items: [
@@ -341,7 +355,7 @@ async function handleSettingSelect(key: string | number) {
   if (key === 'export-data') {
     if (!window.electronAPI) { showAppOnlyTip(); return }
     try {
-      const state = JSON.parse(JSON.stringify({ roles: tracker.roles.value, dungeons: tracker.dungeons.value, records: tracker.records.value, columnConfig: tracker.columnConfig.value, wineBury: tracker.wineBury.value, seasons: tracker.seasons.value }))
+      const state = JSON.parse(JSON.stringify({ roles: tracker.roles.value, dungeons: tracker.dungeons.value, records: tracker.records.value, columnConfig: tracker.columnConfig.value, wineBury: tracker.wineBury.value, seasons: tracker.seasons.value, groupBrands: tracker.groupBrands.value, dungeonOrder: tracker.dungeonOrder.value, specialDrops: tracker.specialDrops.value, buffCalc: tracker.buffCalc.value }))
       const result = await window.electronAPI.exportData(state)
       if (result?.ok) {
         message.success('数据已成功导出')

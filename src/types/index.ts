@@ -17,6 +17,12 @@ export interface Dungeon {
   pinned?: boolean
 }
 
+export interface GroupBrand {
+  id: string
+  name: string
+  blacklisted?: boolean
+}
+
 export interface RecordItem {
   id: string
   roleId: string
@@ -45,13 +51,25 @@ export interface WineBuryItem {
 
 export interface SpecialDrop {
   id: string
-  dungeonPlayers: '10人' | '25人'
-  dungeonDifficulty: '普通' | '英雄' | '挑战'
+  /** @deprecated 掉落不再区分人数，仅为兼容历史数据保留 */
+  dungeonPlayers?: '10人' | '25人'
+  /** @deprecated 掉落不再区分难度，仅为兼容历史数据保留 */
+  dungeonDifficulty?: '普通' | '英雄' | '挑战'
   dungeonName: string
   itemName: string
   iconBase64?: string
   matchAll?: boolean
   matchPlayers?: '10人' | '25人'
+}
+
+export interface BuffCalcState {
+  unitSpirit: number
+  unitVitality: number
+  buffValues: Record<string, number>
+  /** 用户自定义默认值（每赛季数值不同），「恢复默认值」优先恢复到这里 */
+  buffDefaults: Record<string, number>
+  roleBase: Record<string, number>
+  roleSelected: Record<string, string[]>
 }
 
 export interface Season {
@@ -70,4 +88,6 @@ export interface StoreState {
   dungeonOrder?: string[]
   specialDrops?: SpecialDrop[]
   seasons?: Season[]
+  groupBrands?: GroupBrand[]
+  buffCalc?: BuffCalcState
 }
