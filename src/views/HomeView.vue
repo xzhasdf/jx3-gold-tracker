@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.2.13</span>
+          <span class="header-version">v1.2.14</span>
         </div>
         <n-dropdown trigger="click" :options="settingOptions" @select="handleSettingSelect">
           <button class="gear-btn" type="button" aria-label="设置">⚙</button>
@@ -128,6 +128,12 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.2.14',
+    items: [
+      '彻底修复 Windows 任务栏 / 标题栏图标显示不完整：改用多尺寸 .ico（16~256），运行时与打包图标统一指向',
+    ]
+  },
   {
     version: 'v1.2.13',
     items: [
