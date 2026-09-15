@@ -15,7 +15,8 @@ function sanitizeState(input: unknown): StoreState {
     specialDrops: Array.isArray(parsed?.specialDrops) ? parsed!.specialDrops : undefined,
     seasons: Array.isArray(parsed?.seasons) ? parsed!.seasons : undefined,
     groupBrands: Array.isArray(parsed?.groupBrands) ? parsed!.groupBrands : undefined,
-    buffCalc: parsed?.buffCalc && typeof parsed.buffCalc === 'object' ? parsed!.buffCalc : undefined
+    buffCalc: parsed?.buffCalc && typeof parsed.buffCalc === 'object' ? parsed!.buffCalc : undefined,
+    longUse: Array.isArray(parsed?.longUse) ? parsed!.longUse : undefined
   }
 }
 

@@ -2,10 +2,11 @@ import { computed, ref } from 'vue'
 import { DEFAULT_DUNGEONS, DIFFICULTY_OPTIONS, FIXED_DUNGEON_LABEL, PLAYER_OPTIONS, SCHOOLS, SERVERS } from '../constants/game'
 import { DEFAULT_SPECIAL_DROPS } from '../utils/specialDrop'
 import { BUFF_DEFS, BUFF_UNIT_DEFAULTS, type BuffStat } from '../constants/buffCalc'
+import { EQUIP_TYPES } from '../constants/equip'
 import { loadState, saveState } from '../services/storage'
 import { getCurrentMonthRange, getCurrentWeekRange, toYmd } from '../utils/date'
 import { normalizePersonName } from '../utils/leader'
-import type { BuffCalcState, Dungeon, GroupBrand, RecordItem, Role, Season, SpecialDrop, StoreState, WineBuryItem } from '../types'
+import type { BuffCalcState, Dungeon, GroupBrand, LongUseItem, RecordItem, Role, Season, SpecialDrop, StoreState, WineBuryItem } from '../types'
 
 function makeId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -21,6 +22,7 @@ const specialDrops = ref<SpecialDrop[]>([])
 const seasons = ref<Season[]>([])
 const groupBrands = ref<GroupBrand[]>([])
 const buffCalc = ref<BuffCalcState>(normalizeBuffCalc(undefined))
+const longUse = ref<LongUseItem[]>([])
 const newlyAddedRoleIds = ref<Set<string>>(new Set())
 
 function normalizeBuffCalc(input?: Partial<BuffCalcState> | null): BuffCalcState {
@@ -168,6 +170,7 @@ function init() {
   specialDrops.value = Array.isArray(state.specialDrops) ? state.specialDrops : []
   seasons.value = Array.isArray(state.seasons) ? state.seasons : []
   buffCalc.value = normalizeBuffCalc(state.buffCalc)
+  longUse.value = Array.isArray(state.longUse) ? state.longUse : []
 
   // 清理已从 DEFAULT_SPECIAL_DROPS 移除的旧默认条目
   const validDefaultNames = new Set(DEFAULT_SPECIAL_DROPS.map((d) => d.itemName))
@@ -243,7 +246,7 @@ function init() {
 }
 
 function persist() {
-  saveState({ roles: roles.value, dungeons: dungeons.value, records: records.value, columnConfig: columnConfig.value, wineBury: wineBury.value, dungeonOrder: dungeonOrder.value, specialDrops: specialDrops.value, seasons: seasons.value, groupBrands: groupBrands.value, buffCalc: buffCalc.value })
+  saveState({ roles: roles.value, dungeons: dungeons.value, records: records.value, columnConfig: columnConfig.value, wineBury: wineBury.value, dungeonOrder: dungeonOrder.value, specialDrops: specialDrops.value, seasons: seasons.value, groupBrands: groupBrands.value, buffCalc: buffCalc.value, longUse: longUse.value })
 }
 
 // 特殊掉落与人数/难度解绑：同副本名称下的同名掉落视为同一条，
@@ -597,6 +600,54 @@ function updateSpecialDrop(id: string, payload: Omit<SpecialDrop, 'id'>): { ok: 
   return { ok: true }
 }
 
+type LongUsePayload = Omit<LongUseItem, 'id'>
+
+function validateLongUse(payload: LongUsePayload): { ok: boolean; message?: string } {
+  if (!payload.name.trim()) return { ok: false, message: '物品名称不能为空' }
+  if (!EQUIP_TYPES.includes(payload.type)) return { ok: false, message: '请选择装备类型' }
+  if (!Number.isFinite(payload.price) || payload.price <= 0) return { ok: false, message: '购入价格需大于 0' }
+  if (!payload.startDate) return { ok: false, message: '请选择购入日期' }
+  if (payload.endDate && payload.endDate < payload.startDate) {
+    return { ok: false, message: '停用日期不能早于购入日期' }
+  }
+  return { ok: true }
+}
+
+function normalizeLongUse(payload: LongUsePayload): LongUsePayload {
+  return {
+    name: payload.name.trim(),
+    type: payload.type,
+    price: Math.max(0, Math.floor(payload.price)),
+    startDate: payload.startDate,
+    endDate: payload.endDate || undefined,
+    roleId: payload.roleId || undefined,
+    remark: payload.remark?.trim() || undefined
+  }
+}
+
+function addLongUseItem(payload: LongUsePayload): { ok: boolean; message?: string } {
+  const valid = validateLongUse(payload)
+  if (!valid.ok) return valid
+  longUse.value.push({ id: makeId('longuse'), ...normalizeLongUse(payload) })
+  persist()
+  return { ok: true }
+}
+
+function updateLongUseItem(id: string, payload: LongUsePayload): { ok: boolean; message?: string } {
+  const target = longUse.value.find((i) => i.id === id)
+  if (!target) return { ok: false, message: '物品不存在' }
+  const valid = validateLongUse(payload)
+  if (!valid.ok) return valid
+  Object.assign(target, normalizeLongUse(payload))
+  persist()
+  return { ok: true }
+}
+
+function deleteLongUseItem(id: string) {
+  longUse.value = longUse.value.filter((i) => i.id !== id)
+  persist()
+}
+
 function setColumnConfig(keys: string[]) {
   columnConfig.value = keys
   persist()
@@ -732,6 +783,7 @@ function importState(state: StoreState) {
   seasons.value = Array.isArray(state.seasons) ? state.seasons : []
   groupBrands.value = Array.isArray(state.groupBrands) ? state.groupBrands : seedGroupBrandsFromRecords(records.value)
   buffCalc.value = normalizeBuffCalc(state.buffCalc)
+  longUse.value = Array.isArray(state.longUse) ? state.longUse : []
   dungeonOrder.value = Array.isArray(state.dungeonOrder) ? state.dungeonOrder.slice() : []
   dedupeSpecialDropsAndRemapRecords()
   reconcileDungeonOrder()
@@ -889,6 +941,10 @@ export function useTracker() {
     addGroupBrand,
     setGroupBrandBlacklisted,
     deleteGroupBrand,
+    longUse,
+    addLongUseItem,
+    updateLongUseItem,
+    deleteLongUseItem,
     buffCalc,
     setBuffCalcUnit,
     setBuffCalcValue,

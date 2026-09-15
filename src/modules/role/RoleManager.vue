@@ -87,7 +87,7 @@
 
 <script setup lang="ts">
 import { computed, h, reactive, ref } from 'vue'
-import { NTag, type DataTableColumns, useDialog } from 'naive-ui'
+import { NSwitch, NTag, type DataTableColumns, useDialog } from 'naive-ui'
 import type { Role } from '../../types'
 import { useTracker } from '../../composables/useTracker'
 import SchoolBadge from '../shared/SchoolBadge.vue'
@@ -224,12 +224,13 @@ const columns: DataTableColumns<Role> = [
     render: (row) =>
       h('div', { class: 'action-group' }, [
         h(
-          'button',
+          NSwitch,
           {
-            class: row.ignoreCd ? 'mini-btn warning' : 'mini-btn',
-            onClick: () => tracker.toggleRoleCdIgnore(row.id)
+            value: row.ignoreCd,
+            onUpdateValue: () => tracker.toggleRoleCdIgnore(row.id)
           },
-          row.ignoreCd ? '恢复副本CD' : '忽略副本CD'
+          // 开关两侧用同一段文案，避免切换时轨道宽度跳动
+          { checked: () => '忽略副本CD', unchecked: () => '忽略副本CD' }
         ),
         h(
           'button',

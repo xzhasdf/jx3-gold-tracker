@@ -53,3 +53,14 @@ export function toYmd(ts: number): string {
   const day = String(d.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
 }
+
+export function parseYmd(ymd: string): number {
+  const [year, month, day] = ymd.split('-').map(Number)
+  return new Date(year, (month || 1) - 1, day || 1).getTime()
+}
+
+/** 含头含尾的天数差，至少 1 天：当天买当天算已用 1 天 */
+export function daysInclusive(startYmd: string, endYmd: string): number {
+  const diff = parseYmd(endYmd) - parseYmd(startYmd)
+  return Math.max(1, Math.round(diff / 86400000) + 1)
+}

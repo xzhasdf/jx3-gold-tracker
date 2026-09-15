@@ -39,9 +39,20 @@
         </div>
       </div>
     </n-card>
+
+    <n-card hoverable class="tool-card" @click="showLongUseDrawer = true">
+      <div class="tool-card-row">
+        <img :src="icon243" class="tool-card-icon" />
+        <div>
+          <div class="tool-card-title">久物主义</div>
+          <div class="tool-card-desc">论剑网3一件装备分摊到每天的使用成本是多少</div>
+        </div>
+      </div>
+    </n-card>
   </div>
 
   <BuffCalcDrawer v-model:show="showBuffCalcDrawer" />
+  <LongUseDrawer v-model:show="showLongUseDrawer" />
 
   <n-modal v-model:show="showDivinationModal" preset="card" title="试炼翻牌占卜" style="max-width: 420px">
     <n-form label-placement="left" label-width="60">
@@ -204,14 +215,27 @@
         <n-input v-model:value="dropForm.itemName" />
       </n-form-item>
       <n-form-item label="图片（选填）">
-        <div class="drop-upload-row">
-          <label class="drop-upload-btn">
-            <input type="file" accept="image/*" @change="handleIconChange" hidden />
-            选择图片
-          </label>
-          <div v-if="dropForm.iconBase64" class="drop-upload-preview">
-            <img :src="resolveDropIcon(dropForm.iconBase64)" />
-            <span class="drop-upload-clear" @click="dropForm.iconBase64 = ''">&times;</span>
+        <div class="drop-icon-field">
+          <div class="drop-preset-row">
+            <span
+              v-for="key in DROP_PRESET_PICKER_KEYS"
+              :key="key"
+              class="drop-preset"
+              :class="{ active: dropForm.iconBase64 === `preset:${key}` }"
+              @click="togglePresetIcon(key)"
+            >
+              <img :src="DROP_PRESET_ICONS[key]" />
+            </span>
+          </div>
+          <div class="drop-upload-row">
+            <label class="drop-upload-btn">
+              <input type="file" accept="image/*" @change="handleIconChange" hidden />
+              上传自定义图片
+            </label>
+            <div v-if="dropForm.iconBase64" class="drop-upload-preview">
+              <img :src="resolveDropIcon(dropForm.iconBase64)" />
+              <span class="drop-upload-clear" @click="dropForm.iconBase64 = ''">&times;</span>
+            </div>
           </div>
         </div>
       </n-form-item>
@@ -265,6 +289,7 @@ import { useWineBury } from '../../composables/useWineBury'
 import { useTracker } from '../../composables/useTracker'
 import SchoolBadge from '../shared/SchoolBadge.vue'
 import BuffCalcDrawer from './BuffCalcDrawer.vue'
+import LongUseDrawer from './LongUseDrawer.vue'
 import icon88 from '../../assets/icon/88.png'
 import icon237 from '../../assets/icon/237.png'
 import icon255 from '../../assets/icon/255.png'
@@ -274,7 +299,8 @@ import icon10134 from '../../assets/icon/10134.png'
 import icon13867 from '../../assets/icon/13867.png'
 import icon2589 from '../../assets/icon/2589.png'
 import icon15859 from '../../assets/icon/15859.png'
-import { dropNameColor, resolveDropIcon } from '../../utils/specialDrop'
+import icon243 from '../../assets/icon/243.png'
+import { DROP_PRESET_ICONS, DROP_PRESET_PICKER_KEYS, dropNameColor, resolveDropIcon } from '../../utils/specialDrop'
 import iconNum1 from '../../assets/icon/7674.png'
 import iconNum2 from '../../assets/icon/7676.png'
 import iconNum3 from '../../assets/icon/7673.png'
@@ -297,6 +323,7 @@ const showWineDrawer = ref(false)
 const showAddModal = ref(false)
 const showDropDrawer = ref(false)
 const showBuffCalcDrawer = ref(false)
+const showLongUseDrawer = ref(false)
 const showAddDropModal = ref(false)
 const editingDropId = ref<string | null>(null)
 const filterRoleId = ref<string | null>(null)
@@ -394,6 +421,11 @@ function onDropMenuSelect(key: string) {
   if (key === 'edit' && dropMenuTargetId.value) {
     openEditDropModal(dropMenuTargetId.value)
   }
+}
+
+function togglePresetIcon(key: string) {
+  const value = `preset:${key}`
+  dropForm.iconBase64 = dropForm.iconBase64 === value ? '' : value
 }
 
 function handleIconChange(e: Event) {
@@ -983,6 +1015,40 @@ function formatTime(ts: number): string {
   color: #d03050;
 }
 
+.drop-icon-field {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+.drop-preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.drop-preset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid #efeff5;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.drop-preset:hover {
+  border-color: #18a058;
+}
+.drop-preset.active {
+  border-color: #18a058;
+  box-shadow: 0 0 0 2px #18a05826;
+}
+.drop-preset img {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+}
 .drop-upload-row {
   display: flex;
   align-items: center;

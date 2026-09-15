@@ -19,6 +19,12 @@ import icon2272 from '../assets/icon/2272.png'
 import icon2250 from '../assets/icon/2250.png'
 import icon2244 from '../assets/icon/2244.png'
 import icon2260 from '../assets/icon/2260.png'
+import icon22439 from '../assets/icon/22439.png'
+import icon22440 from '../assets/icon/22440.png'
+import icon22441 from '../assets/icon/22441.png'
+import icon22442 from '../assets/icon/22442.png'
+import icon22443 from '../assets/icon/22443.png'
+import icon22444 from '../assets/icon/22444.png'
 import iconDefaultDrop from '../assets/icon/13.png'
 
 export const DROP_PRESET_ICONS: Record<string, string> = {
@@ -43,10 +49,23 @@ export const DROP_PRESET_ICONS: Record<string, string> = {
   '2250': icon2250,
   '2244': icon2244,
   '2260': icon2260,
+  '22439': icon22439,
+  '22440': icon22440,
+  '22441': icon22441,
+  '22442': icon22442,
+  '22443': icon22443,
+  '22444': icon22444,
 }
 
-// 「图片选择」面板暴露给用户的预设
-export const DROP_PRESET_PICKER_KEYS = ['2589', '2588'] as const
+// 「图片选择」面板暴露给用户的预设：装备位按 武器 / 防具 / 暗器 / 项链 / 腰坠 / 戒指 排列
+export const DROP_PRESET_PICKER_KEYS = [
+  '22442',
+  '22443',
+  '22440',
+  '22444',
+  '22441',
+  '22439'
+] as const
 
 export const DROP_DEFAULT_ICON = iconDefaultDrop
 
@@ -73,6 +92,7 @@ export const DEFAULT_SPECIAL_DROPS: {
   { itemName: '赐清平', iconKey: '10902', matchPlayers: '10人' },
   { itemName: '朝露昙华', iconKey: '11273', matchPlayers: '10人' },
   { itemName: '玄晶', iconKey: '2589' },
+  { itemName: '小铁', iconKey: '2588' },
   { itemName: '纵横之剑·捭', iconKey: '2260' },
   { itemName: '纵横之剑·阖', iconKey: '2244' },
   { itemName: '寸险律·残卷', iconKey: '2265' },

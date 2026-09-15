@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.2.14</span>
+          <span class="header-version">v1.2.15</span>
         </div>
         <n-dropdown trigger="click" :options="settingOptions" @select="handleSettingSelect">
           <button class="gear-btn" type="button" aria-label="设置">⚙</button>
@@ -128,6 +128,17 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.2.15',
+    items: [
+      '小工具新增「久物主义」：记录装备的购入价与购入日期，算出分摊到每天的使用成本（购入价 ÷ 已使用天数），用得越久每天越便宜',
+      '久物主义按武器/防具/暗器/项链/腰坠/戒指分类，卡片式列表支持按类型筛选，顶部汇总在用件数、每天合计与累计投入',
+      '久物主义每张卡片显示「较昨日」的下降幅度，金额越小小数位给得越多；留空停用日期表示仍在使用，填了则天数冻结不再摊薄',
+      '特殊掉落新增图片时可直接选用武器/防具/暗器/项链/腰坠/戒指六个预设图标，无需上传',
+      '通用掉落新增「小铁」',
+      '角色管理「忽略副本CD」由按钮改为开关',
+    ]
+  },
   {
     version: 'v1.2.14',
     items: [

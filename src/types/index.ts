@@ -1,3 +1,5 @@
+import type { EquipType } from '../constants/equip'
+
 export interface Role {
   id: string
   server: string
@@ -72,6 +74,20 @@ export interface BuffCalcState {
   roleSelected: Record<string, string[]>
 }
 
+export interface LongUseItem {
+  id: string
+  name: string
+  type: EquipType
+  /** 购入价格，单位：金 */
+  price: number
+  /** 购入日期 YYYY-MM-DD */
+  startDate: string
+  /** 停用日期 YYYY-MM-DD；为空表示仍在使用，摊销天数算到今天 */
+  endDate?: string
+  roleId?: string
+  remark?: string
+}
+
 export interface Season {
   id: string
   name: string
@@ -90,4 +106,5 @@ export interface StoreState {
   seasons?: Season[]
   groupBrands?: GroupBrand[]
   buffCalc?: BuffCalcState
+  longUse?: LongUseItem[]
 }
