@@ -38,8 +38,10 @@ const overflow = ref(false)
 
 const ROW_HEIGHT = 22
 const ROW_GAP = 6
+// 悬停时标签上移 1px，折叠态 overflow:hidden 会裁掉首行顶部，所以容器顶部留出余量
+const HOVER_LIFT_PAD = 2
 const collapsedMaxHeight = computed(
-  () => ROW_HEIGHT * props.maxLines + ROW_GAP * Math.max(0, props.maxLines - 1)
+  () => HOVER_LIFT_PAD + ROW_HEIGHT * props.maxLines + ROW_GAP * Math.max(0, props.maxLines - 1)
 )
 
 let ro: ResizeObserver | null = null
@@ -80,19 +82,20 @@ onUnmounted(() => {
   flex-wrap: wrap;
   align-items: flex-start;
   gap: 6px;
-  padding-top: 2px;
 }
 .quick-tag-label {
   font-size: 12px;
   color: #909399;
   user-select: none;
   line-height: 22px;
+  padding-top: 2px;
   flex: 0 0 auto;
 }
 .quick-tag-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  padding-top: 2px; /* 与 HOVER_LIFT_PAD 一致 */
   flex: 1 1 0;
   min-width: 0;
 }
@@ -111,5 +114,6 @@ onUnmounted(() => {
   flex: 0 0 auto;
   align-self: flex-start;
   line-height: 22px;
+  margin-top: 2px;
 }
 </style>

@@ -1,30 +1,26 @@
 <template>
-  <n-card>
-    <template #header>收支趋势（按角色）</template>
-    <n-form inline class="query-form">
-      <n-form-item label="副本筛选">
+  <n-card size="small" title="收支趋势">
+    <template #header-extra>
+      <n-space :size="8" :wrap-item="false" align="center">
         <n-select
           v-model:value="selectedDungeonId"
           clearable
+          size="small"
           :options="dungeonFilterOptions"
           placeholder="全部副本"
-          :style="{ width: '340px', maxWidth: '100%' }"
+          style="width: 180px"
         />
-      </n-form-item>
-      <n-form-item label="指标">
-        <n-select v-model:value="metric" :options="metricOptions" :style="{ width: '220px', maxWidth: '100%' }" />
-      </n-form-item>
-    </n-form>
-
-    <div style="height: 24px"></div>
+        <n-select v-model:value="metric" size="small" :options="metricOptions" style="width: 100px" />
+      </n-space>
+    </template>
     <div v-if="dateKeys.length === 0" class="empty-trend">当前筛选区间暂无数据</div>
     <div v-show="dateKeys.length > 0" ref="chartRef" class="trend-chart"></div>
   </n-card>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
-import * as echarts from 'echarts'
+import { computed, ref } from 'vue'
+import { LIGHT_LINE_DEFAULTS, LIGHT_SERIES_DEFAULTS, useLineChart } from '../../composables/useLineChart'
 import { formatMoney } from '../../utils/money'
 import iconGold from '../../assets/金币.png'
 import iconBrick from '../../assets/金砖.png'
@@ -37,6 +33,8 @@ function formatMoneyHtml(value: number): string {
 
 interface TrendRow {
   date: string
+  /** 统计归属日（周一 7:00 前的记录归到周日），按它落到横轴上 */
+  statDate?: string
   roleId: string
   dungeonId: string
   income: number
@@ -75,7 +73,7 @@ const dungeonFilterOptions = computed(() => props.dungeons.map((d) => ({ label: 
 
 const dateKeys = computed(() => {
   if (!props.range) {
-    return Array.from(new Set(props.rows.map((row) => row.date))).sort()
+    return Array.from(new Set(props.rows.map((row) => row.statDate ?? row.date))).sort()
   }
   const [start, end] = props.range
   const days: string[] = []
@@ -106,7 +104,7 @@ const lineData = computed(() => {
     const values = Array(dateKeys.value.length).fill(0)
     filteredRows.value.forEach((row) => {
       if (row.roleId !== role.id) return
-      const i = indexMap.get(row.date)
+      const i = indexMap.get(row.statDate ?? row.date)
       if (i === undefined) return
       values[i] += row[metric.value]
     })
@@ -115,6 +113,7 @@ const lineData = computed(() => {
 })
 
 const chartOption = computed(() => ({
+  ...LIGHT_LINE_DEFAULTS,
   color: colors,
   grid: { top: 20, right: 18, bottom: 50, left: 96 },
   tooltip: {
@@ -150,39 +149,19 @@ const chartOption = computed(() => ({
     data: line.values,
     smooth: true,
     lineStyle: { width: 2.2 },
-    symbol: 'circle',
-    symbolSize: 5,
+    ...LIGHT_SERIES_DEFAULTS,
     emphasis: { focus: 'series' as const }
   }))
 }))
 
 const chartRef = ref<HTMLElement | null>(null)
-let chart: echarts.ECharts | null = null
-let ro: ResizeObserver | null = null
-
-onMounted(() => {
-  if (!chartRef.value) return
-  chart = echarts.init(chartRef.value)
-  chart.setOption(chartOption.value)
-  ro = new ResizeObserver(() => chart?.resize())
-  ro.observe(chartRef.value)
-})
-
-watch(chartOption, (opt) => {
-  chart?.setOption(opt, true)
-})
-
-onUnmounted(() => {
-  ro?.disconnect()
-  chart?.dispose()
-  chart = null
-})
+useLineChart(chartRef, chartOption)
 </script>
 
 <style scoped>
 .trend-chart {
   width: 100%;
-  height: 360px;
+  height: 300px;
   background: linear-gradient(180deg, #f8fbff 0%, #eef3ff 100%);
   border-radius: 10px;
   border: 1px solid #d9e1ef;

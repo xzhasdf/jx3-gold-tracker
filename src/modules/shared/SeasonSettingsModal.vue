@@ -16,14 +16,26 @@
           <n-form-item label="名称">
             <n-input v-model:value="form.name" placeholder="如：第一赛季" maxlength="20" show-count />
           </n-form-item>
-          <n-form-item label="起止时间" style="margin-top: 12px;">
+          <n-form-item :label="form.endUnknown ? '开始时间' : '起止时间'" style="margin-top: 12px;">
             <n-date-picker
+              v-if="form.endUnknown"
+              v-model:value="form.start"
+              type="date"
+              clearable
+              :is-date-disabled="isDateDisabled"
+              style="width: 100%;"
+            />
+            <n-date-picker
+              v-else
               v-model:value="form.range"
               type="daterange"
               clearable
               :is-date-disabled="isDateDisabled"
               style="width: 100%;"
             />
+          </n-form-item>
+          <n-form-item label=" " style="margin-top: 4px;">
+            <n-checkbox v-model:checked="form.endUnknown">结束时间未知（赛季进行中）</n-checkbox>
           </n-form-item>
         </n-form>
         <div class="form-actions">
@@ -61,12 +73,24 @@ const tracker = useTracker()
 const dialog = useDialog()
 const message = useMessage()
 
-const seasons = computed(() => tracker.seasons.value)
+const seasons = computed(() => tracker.sortedSeasons.value)
 
 const formVisible = ref(false)
 const formMode = ref<'create' | 'edit'>('create')
 const editingId = ref<string>('')
-const form = reactive<{ name: string; range: [number, number] | null }>({ name: '', range: null })
+const form = reactive<{ name: string; range: [number, number] | null; start: number | null; endUnknown: boolean }>({
+  name: '',
+  range: null,
+  start: null,
+  endUnknown: false
+})
+
+function resetForm() {
+  form.name = ''
+  form.range = null
+  form.start = null
+  form.endUnknown = false
+}
 
 watch(
   () => props.show,
@@ -74,8 +98,7 @@ watch(
     if (!v) {
       formVisible.value = false
       editingId.value = ''
-      form.name = ''
-      form.range = null
+      resetForm()
     }
   }
 )
@@ -83,8 +106,7 @@ watch(
 function openCreate() {
   formMode.value = 'create'
   editingId.value = ''
-  form.name = ''
-  form.range = null
+  resetForm()
   formVisible.value = true
 }
 
@@ -92,7 +114,9 @@ function openEdit(season: Season) {
   formMode.value = 'edit'
   editingId.value = season.id
   form.name = season.name
-  form.range = [season.startTs, season.endTs]
+  form.endUnknown = season.endTs === null
+  form.start = season.startTs
+  form.range = season.endTs === null ? null : [season.startTs, season.endTs]
   formVisible.value = true
 }
 
@@ -101,11 +125,22 @@ function cancelForm() {
 }
 
 function saveForm() {
-  if (!form.range) {
-    message.warning('请选择起止时间')
-    return
+  let startTs: number
+  let endTs: number | null
+  if (form.endUnknown) {
+    if (form.start === null) {
+      message.warning('请选择开始时间')
+      return
+    }
+    startTs = form.start
+    endTs = null
+  } else {
+    if (!form.range) {
+      message.warning('请选择起止时间')
+      return
+    }
+    ;[startTs, endTs] = form.range
   }
-  const [startTs, endTs] = form.range
   const payload = { name: form.name, startTs, endTs }
   const result = formMode.value === 'create'
     ? tracker.addSeason(payload)
@@ -121,7 +156,7 @@ function saveForm() {
 function isDateDisabled(ts: number) {
   return seasons.value.some((s) => {
     if (formMode.value === 'edit' && s.id === editingId.value) return false
-    return ts >= s.startTs && ts <= s.endTs
+    return ts >= s.startTs && ts <= (s.endTs ?? Number.POSITIVE_INFINITY)
   })
 }
 
@@ -144,7 +179,10 @@ const columns = computed<DataTableColumns<Season>>(() => [
     title: '起止时间',
     key: 'range',
     minWidth: 200,
-    render: (row) => `${toYmd(row.startTs)} ~ ${toYmd(row.endTs)}`
+    render: (row) =>
+      row.endTs === null
+        ? h('span', [`${toYmd(row.startTs)} ~ 未知`, h('span', { style: 'color:#999;margin-left:6px;font-size:12px;' }, `（预计 ${toYmd(tracker.estimateSeasonEndTs(row.startTs))}）`)])
+        : `${toYmd(row.startTs)} ~ ${toYmd(row.endTs)}`
   },
   {
     title: '操作',

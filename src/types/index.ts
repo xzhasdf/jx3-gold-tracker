@@ -65,8 +65,14 @@ export interface SpecialDrop {
 }
 
 export interface BuffCalcState {
-  unitSpirit: number
-  unitVitality: number
+  /** 是否同时显示上一个资料片（130级）的小吃小药 */
+  showPrevExpansion: boolean
+  /** 每层增益所需基础属性，按资料片分别保存；缺省为 0 表示「未设置」 */
+  units: Record<string, { spirit: number; vitality: number }>
+  /** @deprecated 旧版单一数值，读取时迁移到 units[LEGACY_BUFF_EXPANSION] */
+  unitSpirit?: number
+  /** @deprecated 同上 */
+  unitVitality?: number
   buffValues: Record<string, number>
   /** 用户自定义默认值（每赛季数值不同），「恢复默认值」优先恢复到这里 */
   buffDefaults: Record<string, number>
@@ -92,7 +98,8 @@ export interface Season {
   id: string
   name: string
   startTs: number
-  endTs: number
+  /** 结束时间；null 表示未知（赛季进行中），按今天截止计算 */
+  endTs: number | null
 }
 
 export interface StoreState {
@@ -107,4 +114,10 @@ export interface StoreState {
   groupBrands?: GroupBrand[]
   buffCalc?: BuffCalcState
   longUse?: LongUseItem[]
+  /** 已补齐过的默认副本（`副本名|人数|难度`）：每个组合只给老用户补一次，之后用户删掉的不再补回 */
+  seededDungeons?: string[]
+  /** 已补齐过的默认赛季名：每个只补一次，之后用户删掉的不再补回 */
+  seededSeasons?: string[]
+  /** 已补齐过的内置副本掉落（`副本名|物品名`）：每项只补一次，之后用户删掉的不再补回 */
+  seededDrops?: string[]
 }

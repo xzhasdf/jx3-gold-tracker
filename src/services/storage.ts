@@ -16,7 +16,10 @@ function sanitizeState(input: unknown): StoreState {
     seasons: Array.isArray(parsed?.seasons) ? parsed!.seasons : undefined,
     groupBrands: Array.isArray(parsed?.groupBrands) ? parsed!.groupBrands : undefined,
     buffCalc: parsed?.buffCalc && typeof parsed.buffCalc === 'object' ? parsed!.buffCalc : undefined,
-    longUse: Array.isArray(parsed?.longUse) ? parsed!.longUse : undefined
+    longUse: Array.isArray(parsed?.longUse) ? parsed!.longUse : undefined,
+    seededDungeons: Array.isArray(parsed?.seededDungeons) ? parsed!.seededDungeons : undefined,
+    seededSeasons: Array.isArray(parsed?.seededSeasons) ? parsed!.seededSeasons : undefined,
+    seededDrops: Array.isArray(parsed?.seededDrops) ? parsed!.seededDrops : undefined
   }
 }
 

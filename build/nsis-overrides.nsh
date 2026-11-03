@@ -37,4 +37,9 @@ ShowInstDetails show
     CopyFiles /SILENT "$TEMP\jx3tracker_bak\data\state.json" "$INSTDIR\data\"
   ${EndIf}
   RMDir /r "$TEMP\jx3tracker_bak"
+
+  ; 刷新 Windows 图标缓存：升级后安装路径与 exe 名不变，任务栏 / 快捷方式可能一直沿用旧图标
+  ; Win10/11 用 -show，旧系统用 -ClearIconCache；命令不存在或失败不影响安装
+  nsExec::Exec 'ie4uinit.exe -show'
+  nsExec::Exec 'ie4uinit.exe -ClearIconCache'
 !macroend

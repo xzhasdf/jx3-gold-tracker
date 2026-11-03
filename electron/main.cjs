@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron')
+const { app, BrowserWindow, Menu, dialog, ipcMain, net, shell } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const { spawn } = require('child_process')
@@ -256,6 +256,94 @@ function writeSettings(next) {
   fs.writeFileSync(getSettingsPath(), JSON.stringify(next, null, 2), 'utf-8')
 }
 
+// ─── 万宝楼金价查询 ──────────────────────────────────────────────────────────
+// 万宝楼买家端接口（trade-api.seasunwbl.com）无需登录，GET 直接返回 JSON。
+// 金币商品的 single_count_price 是「每元多少金」，值越大金价越便宜，
+// 所以「最低金价」= 按 single_count_price 倒序的第一条。
+
+const WBL_API = 'https://trade-api.seasunwbl.com'
+const WBL_TIMEOUT = 8000
+const DEFAULT_GOLD_SERVER = { zoneId: 'z05', zoneName: '电信区', serverId: 'gate0502', serverName: '梦江南' }
+
+function wblRequest(apiPath, params) {
+  const query = new URLSearchParams({
+    req_id: randomUUID().replace(/-/g, ''),
+    game_id: 'jx3',
+    ...params
+  }).toString()
+
+  return new Promise((resolve, reject) => {
+    const request = net.request(`${WBL_API}${apiPath}?${query}`)
+    const timer = setTimeout(() => {
+      try { request.abort() } catch { /* ignore */ }
+      reject(new Error('请求超时'))
+    }, WBL_TIMEOUT)
+
+    request.setHeader('Referer', 'https://jx3.seasunwbl.com/')
+    request.on('response', (response) => {
+      let body = ''
+      response.on('data', (chunk) => { body += chunk.toString('utf8') })
+      response.on('end', () => {
+        clearTimeout(timer)
+        try {
+          const parsed = JSON.parse(body)
+          if (parsed.code !== 1) return reject(new Error(parsed.msg || '接口返回异常'))
+          resolve(parsed.data)
+        } catch (error) {
+          reject(new Error('返回内容解析失败'))
+        }
+      })
+    })
+    request.on('error', (error) => {
+      clearTimeout(timer)
+      reject(error)
+    })
+    request.end()
+  })
+}
+
+function readGoldServer() {
+  const saved = readSettings().goldServer
+  if (!saved || typeof saved !== 'object') return { ...DEFAULT_GOLD_SERVER }
+  const merged = { ...DEFAULT_GOLD_SERVER, ...saved }
+  return merged.zoneId && merged.serverId ? merged : { ...DEFAULT_GOLD_SERVER }
+}
+
+function writeGoldServer(server) {
+  const settings = readSettings()
+  settings.goldServer = {
+    zoneId: String(server.zoneId || ''),
+    zoneName: String(server.zoneName || ''),
+    serverId: String(server.serverId || ''),
+    serverName: String(server.serverName || '')
+  }
+  writeSettings(settings)
+  return settings.goldServer
+}
+
+async function fetchGoldPrice(server) {
+  const target = server && server.zoneId && server.serverId ? server : readGoldServer()
+  const data = await wblRequest('/api/buyer/goods/list', {
+    goods_type: '1',
+    zone_id: target.zoneId,
+    server_id: target.serverId,
+    page: '1',
+    size: '10',
+    'sort[single_count_price]': 'desc'
+  })
+  const lowest = Array.isArray(data.list) ? data.list[0] : null
+  if (!lowest) throw new Error('该服当前没有在售金币')
+  return {
+    price: lowest.single_count_price,      // 每元多少金
+    goldAmount: lowest.single_unit_size,   // 该条商品单份金数
+    unitPrice: lowest.single_unit_price / 100, // 单份价格（元）
+    remainCount: lowest.remain_unit_count,
+    zoneName: lowest.zone_name || target.zoneName,
+    serverName: lowest.server_name || target.serverName,
+    updatedAt: Date.now()
+  }
+}
+
 function getDefaultDataDir() {
   return path.join(getAppRootDir(), 'data')
 }
@@ -425,6 +513,12 @@ function setupMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
+// Windows：AppUserModelID 与安装程序创建的快捷方式（electron-builder 用 appId）一致，
+// 任务栏才会把运行中的窗口与快捷方式归为同一程序并使用同一图标；否则可能沿用缓存里的旧图标（早期长方形图标只显示一半）
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.xiatian.jx3.tracker')
+}
+
 app.whenReady().then(() => {
   // 预热 OCR worker
   ocrManager.start()
@@ -448,6 +542,30 @@ app.whenReady().then(() => {
     ocrManager._statusListeners.push((status) => {
       try { event.sender.send('app:ocrStatus', status) } catch { /* window may be closed */ }
     })
+  })
+
+  ipcMain.handle('app:getGoldPrice', async (_event, server) => {
+    try {
+      return { ok: true, data: await fetchGoldPrice(server) }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : '查询失败' }
+    }
+  })
+  ipcMain.handle('app:getGoldGateways', async () => {
+    try {
+      const data = await wblRequest('/api/platform/setting/gateways', {})
+      return { ok: true, data: Array.isArray(data.list) ? data.list : [] }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : '查询失败' }
+    }
+  })
+  ipcMain.handle('app:getGoldServer', () => readGoldServer())
+  ipcMain.handle('app:setGoldServer', (_event, server) => {
+    try {
+      return { ok: true, data: writeGoldServer(server || {}) }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : '保存失败' }
+    }
   })
 
   ipcMain.handle('app:getDataDir', () => ensureDataDir())

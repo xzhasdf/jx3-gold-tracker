@@ -12,8 +12,12 @@ export function getPreviousMonthRange(): [number, number] {
   return [start, end]
 }
 
+// 周的切换点是周一 7:00（周 CD 重置），不是周一 0:00：周一 7:00 前「本周」仍指上一周
+export const WEEK_RESET_HOUR = 7
+
 export function getCurrentWeekRange(): [number, number] {
   const now = new Date()
+  if (now.getDay() === 1 && now.getHours() < WEEK_RESET_HOUR) now.setDate(now.getDate() - 1)
   const day = now.getDay()
   const deltaToMonday = day === 0 ? -6 : 1 - day
   const startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + deltaToMonday)

@@ -2,9 +2,17 @@
   <n-drawer v-model:show="showModel" :width="720" placement="right">
     <n-drawer-content title="增益计算">
       <div class="bc-toolbar">
-        <n-button type="primary" size="small" @click="showBuffManage = true">额外增益管理</n-button>
-        <span class="bc-tip">点击数值可修改；点击增益标签为该角色启用 / 取消该增益</span>
+        <span v-if="prevExpansion" class="bc-inline">
+          <n-switch
+            size="small"
+            :value="tracker.buffCalc.value.showPrevExpansion"
+            @update:value="(v: boolean) => tracker.setBuffCalcShowPrev(v)"
+          />
+          <span class="bc-label">显示{{ prevLabel }}小吃小药</span>
+        </span>
+        <n-button type="primary" size="small" class="bc-toolbar-right" @click="openBuffManage">额外增益管理</n-button>
       </div>
+      <div class="bc-tip">点击数值可修改；点击增益标签为该角色启用 / 取消该增益，同类增益只能启用一个</div>
       <n-divider style="margin: 12px 0" />
 
       <div class="bc-section-title">每层增益所需基础属性</div>
@@ -16,7 +24,7 @@
             <n-button text type="primary" size="small" @click="confirmUnitEdit(stat)">确认</n-button>
             <n-button text size="small" @click="cancelEdit">取消</n-button>
           </template>
-          <span v-else class="bc-num-plain" title="点击修改" @click="startEdit(`unit:${stat}`, unitOf(stat))">{{ unitOf(stat) }}<span class="bc-edit-icon">✎</span></span>
+          <span v-else class="bc-num-plain" :class="{ unset: !unitOf(stat) }" title="点击修改" @click="startEdit(`unit:${stat}`, unitOf(stat) || null)">{{ unitOf(stat) || '未设置' }}<span class="bc-edit-icon">✎</span></span>
         </span>
       </div>
 
@@ -39,10 +47,11 @@
             </template>
             <span v-else class="bc-num-plain" title="点击修改" @click="startEdit(`role:${item.role.id}`, item.base)">{{ item.base }}<span class="bc-edit-icon">✎</span></span>
           </span>
-          <span class="bc-layers">层数 <b>{{ item.layers }}</b> 层</span>
+          <span class="bc-layers">层数 <b>{{ item.layers ?? '—' }}</b> 层</span>
         </div>
-        <div class="bc-buffs">
-          <template v-for="(group, gi) in groupBuffs(item.buffs)" :key="gi">
+        <div v-for="row in item.rows" :key="row.label" class="bc-buffs">
+          <span v-if="item.rows.length > 1" class="bc-row-label">{{ row.label }}</span>
+          <template v-for="(group, gi) in groupBuffs(row.buffs)" :key="gi">
             <span v-if="gi > 0" class="bc-buff-divider" />
             <span
               v-for="d in group"
@@ -52,7 +61,7 @@
               @click="tracker.toggleBuffCalcRoleBuff(item.role.id, d.key)"
             >
               <span :style="d.color ? { color: d.color } : undefined">{{ d.name }}</span>
-              <span class="bc-buff-val">{{ valueOf(d) }}</span>
+              <span class="bc-buff-val" :title="valueOf(d) ? undefined : '数值未知，可在「额外增益管理」里填写'">{{ valueOf(d) || '?' }}</span>
             </span>
           </template>
         </div>
@@ -61,10 +70,12 @@
   </n-drawer>
 
   <n-modal v-model:show="showBuffManage" preset="card" title="额外增益管理" style="max-width: 620px">
-    <div v-for="stat in BUFF_STATS" :key="stat" class="bc-manage-group">
-      <div class="bc-section-title">{{ BUFF_STAT_LABEL[stat] }}增益</div>
+    <n-tabs v-model:value="manageExpansion" type="line" size="small" animated>
+      <n-tab-pane v-for="exp in BUFF_EXPANSIONS" :key="exp.key" :name="exp.key" :tab="exp.label ?? exp.name">
+    <div v-for="sec in manageSections(exp.key)" :key="sec.title" class="bc-manage-group">
+      <div class="bc-section-title">{{ sec.title }}</div>
       <div class="bc-manage-grid">
-        <div v-for="d in BUFF_DEFS.filter((x) => x.stat === stat)" :key="d.key" class="bc-manage-item">
+        <div v-for="d in sec.defs" :key="d.key" class="bc-manage-item">
           <span class="bc-manage-name" :style="d.color ? { color: d.color } : undefined">{{ d.name }}</span>
           <n-input-number
             :value="valueOf(d)"
@@ -77,6 +88,8 @@
         </div>
       </div>
     </div>
+      </n-tab-pane>
+    </n-tabs>
     <template #footer>
       <n-space justify="end">
         <n-button @click="handleSaveBuffDefaults">设为默认值</n-button>
@@ -94,6 +107,8 @@ import { useTracker } from '../../composables/useTracker'
 import SchoolBadge from '../shared/SchoolBadge.vue'
 import {
   BUFF_DEFS,
+  BUFF_EXPANSIONS,
+  DEFAULT_BUFF_EXPANSION,
   BUFF_STAT_LABEL,
   SPIRIT_SCHOOLS,
   VITALITY_SCHOOLS,
@@ -114,10 +129,25 @@ const dialog = useDialog()
 const BUFF_STATS: BuffStat[] = ['spirit', 'vitality']
 
 const showBuffManage = ref(false)
+// 固定用最新资料片；上一个资料片的小吃小药通过开关附带显示
+const currentExpansion = computed(() => DEFAULT_BUFF_EXPANSION)
+const manageExpansion = ref<string>(DEFAULT_BUFF_EXPANSION)
+// 上一个资料片（BUFF_EXPANSIONS 新的在前，所以取下一项）；当前已是最老的则没有
+const prevExpansion = computed(() => {
+  const idx = BUFF_EXPANSIONS.findIndex((e) => e.key === currentExpansion.value)
+  return idx >= 0 ? BUFF_EXPANSIONS[idx + 1] ?? null : null
+})
+const prevLabel = computed(() => prevExpansion.value?.label ?? prevExpansion.value?.name ?? '')
+
+// 打开管理弹窗时默认定位到当前资料片的页签
+function openBuffManage() {
+  manageExpansion.value = currentExpansion.value
+  showBuffManage.value = true
+}
 const editingKey = ref<string | null>(null)
 const draft = ref<number | null>(null)
 
-function startEdit(key: string, current: number) {
+function startEdit(key: string, current: number | null) {
   editingKey.value = key
   draft.value = current
 }
@@ -137,8 +167,9 @@ function confirmRoleEdit(roleId: string) {
   cancelEdit()
 }
 
+// 当前资料片的每层所需属性；0 表示还没设置
 function unitOf(stat: BuffStat): number {
-  return stat === 'spirit' ? tracker.buffCalc.value.unitSpirit : tracker.buffCalc.value.unitVitality
+  return tracker.buffCalc.value.units[currentExpansion.value]?.[stat] ?? 0
 }
 
 function valueOf(d: BuffDef): number {
@@ -155,13 +186,32 @@ const calcRoles = computed(() =>
       const stat: BuffStat = spiritSchoolSet.has(r.school) ? 'spirit' : 'vitality'
       const base = tracker.buffCalc.value.roleBase[r.id] ?? 0
       const selected = new Set(tracker.buffCalc.value.roleSelected[r.id] ?? [])
-      const buffs = BUFF_DEFS.filter((d) => d.stat === stat)
+      const ofExpansion = (key: string) => BUFF_DEFS.filter((d) => d.stats.includes(stat) && d.expansion === key)
+      const curName = BUFF_EXPANSIONS.find((e) => e.key === currentExpansion.value)?.name ?? ''
+      const rows = [{ label: curName, buffs: ofExpansion(currentExpansion.value) }]
+      if (prevExpansion.value && tracker.buffCalc.value.showPrevExpansion) {
+        rows.push({ label: prevLabel.value, buffs: ofExpansion(prevExpansion.value.key) })
+      }
+      const buffs = rows.flatMap((r) => r.buffs)
       const sum = buffs.filter((d) => selected.has(d.key)).reduce((acc, d) => acc + valueOf(d), 0)
       const unit = unitOf(stat)
-      const layers = unit > 0 ? Math.floor((base + sum) / unit) : 0
-      return { role: r, stat, base, selected, buffs, layers }
+      const layers = unit > 0 ? Math.floor((base + sum) / unit) : null
+      return { role: r, stat, base, selected, rows, layers }
     })
 )
+
+// 管理弹窗的分块：根骨 / 体质通用的放一块，只适用一种主属性的各放一块
+function manageSections(expKey: string): { title: string; defs: BuffDef[] }[] {
+  const defs = BUFF_DEFS.filter((d) => d.expansion === expKey)
+  const shared = defs.filter((d) => BUFF_STATS.every((st) => d.stats.includes(st)))
+  const sections: { title: string; defs: BuffDef[] }[] = []
+  if (shared.length) sections.push({ title: '主属性增益（根骨、体质通用）', defs: shared })
+  BUFF_STATS.forEach((st) => {
+    const only = defs.filter((d) => d.stats.length === 1 && d.stats[0] === st)
+    if (only.length) sections.push({ title: shared.length ? `仅${BUFF_STAT_LABEL[st]}门派` : `${BUFF_STAT_LABEL[st]}增益`, defs: only })
+  })
+  return sections
+}
 
 // 按互斥组聚合，组间显示分隔线；无组的 buff 各自成组
 function groupBuffs(buffs: BuffDef[]): BuffDef[][] {
@@ -205,7 +255,11 @@ function handleResetBuffValues() {
   align-items: center;
   gap: 12px;
 }
+.bc-toolbar-right {
+  margin-left: auto;
+}
 .bc-tip {
+  margin-top: 8px;
   font-size: 12px;
   color: #999;
 }
@@ -239,6 +293,10 @@ function handleResetBuffValues() {
   cursor: pointer;
   border-bottom: 1px dashed #9aa3b0;
   padding-bottom: 1px;
+}
+.bc-num-plain.unset {
+  color: #d03050;
+  font-weight: 400;
 }
 .bc-num-plain:hover {
   color: #3f83f8;
@@ -318,6 +376,12 @@ function handleResetBuffValues() {
 }
 .bc-buff.selected .bc-buff-val {
   color: #18a058;
+}
+.bc-row-label {
+  /* 占满一行，增益标签从下一行开始 */
+  flex-basis: 100%;
+  font-size: 12px;
+  color: #909399;
 }
 .bc-buff-divider {
   width: 1px;

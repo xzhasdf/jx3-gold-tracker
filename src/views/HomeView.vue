@@ -5,11 +5,24 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.2.15</span>
+          <span class="header-version">v1.3.0</span>
         </div>
-        <n-dropdown trigger="click" :options="settingOptions" @select="handleSettingSelect">
-          <button class="gear-btn" type="button" aria-label="设置">⚙</button>
-        </n-dropdown>
+        <div class="header-actions">
+          <button
+            v-if="hasElectron"
+            class="gold-price"
+            type="button"
+            :disabled="goldLoading"
+            :title="goldTooltip"
+            @click="refreshGold()"
+          >
+            <img src="../assets/金币.png" alt="金价" class="gold-price-icon" />
+            <span class="gold-price-text">{{ goldText }}</span>
+          </button>
+          <n-dropdown trigger="click" :options="settingOptions" @select="handleSettingSelect">
+            <button class="gear-btn" type="button" aria-label="设置">⚙</button>
+          </n-dropdown>
+        </div>
       </div>
     </n-layout-header>
     <Transition name="ocr-bar-fade">
@@ -45,6 +58,7 @@
   </n-layout>
 
   <SeasonSettingsModal v-model:show="showSeasonSettings" />
+  <GoldServerModal v-model:show="showGoldServer" />
 </template>
 
 <script setup lang="ts">
@@ -56,9 +70,11 @@ import RoleManager from '../modules/role/RoleManager.vue'
 import DungeonManager from '../modules/dungeon/DungeonManager.vue'
 import ToolsPage from '../modules/tools/ToolsPage.vue'
 import SeasonSettingsModal from '../modules/shared/SeasonSettingsModal.vue'
+import GoldServerModal from '../modules/shared/GoldServerModal.vue'
 import { useTracker } from '../composables/useTracker'
 import { useOcrState } from '../composables/useOcrState'
 import { useWineBury } from '../composables/useWineBury'
+import { useGoldPrice } from '../composables/useGoldPrice'
 
 const dialog = useDialog()
 const message = useMessage()
@@ -66,6 +82,32 @@ const tracker = useTracker()
 const { ocrReady, ocrLoading, ocrLoadingText, ocrDownloadPercent, setReady, setLoading, setLoadingStatus } = useOcrState()
 
 const wineBury = useWineBury()
+
+const hasElectron = !!window.electronAPI
+const { price: goldPrice, server: goldServer, loading: goldLoading, error: goldError, init: initGold, refresh: refreshGold } = useGoldPrice()
+
+const goldText = computed(() => {
+  if (goldLoading.value) return '金价查询中...'
+  if (goldPrice.value) return `${goldPrice.value.serverName} ${goldPrice.value.price} 金/元`
+  return goldError.value ? '金价获取失败' : '点击查询金价'
+})
+
+const goldTooltip = computed(() => {
+  if (goldError.value && !goldPrice.value) return `${goldError.value}（点击重试）`
+  if (!goldPrice.value) return '点击查询万宝楼最低金价'
+  const p = goldPrice.value
+  const time = new Date(p.updatedAt).toLocaleTimeString('zh-CN', { hour12: false })
+  return [
+    `${p.zoneName} · ${p.serverName}`,
+    `最低金价 ${p.price} 金/元（${p.unitPrice} 元 = ${p.goldAmount.toLocaleString()} 金）`,
+    `该挂单剩余 ${p.remainCount} 份`,
+    `更新于 ${time}，点击刷新`
+  ].join('\n')
+})
+
+onMounted(() => {
+  initGold()
+})
 
 onMounted(() => {
   const upcomingWines = wineBury.getUpcomingWines()
@@ -113,10 +155,12 @@ onMounted(() => {
 
 const showChangelog = ref(false)
 const showSeasonSettings = ref(false)
+const showGoldServer = ref(false)
 
 const settingOptions = computed<DropdownOption[]>(() => [
   ...(!ocrReady.value ? [{ label: '下载 OCR 模型', key: 'download-ocr' }] : []),
   { label: '赛季设置', key: 'season-settings' },
+  { label: '金价区服', key: 'gold-server' },
   { type: 'divider' as const, key: 'div0' },
   { label: '导出数据', key: 'export-data' },
   { label: '导入数据', key: 'import-data' },
@@ -128,6 +172,27 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.3.0',
+    items: [
+      '适配「苍生铸世」资料片：新增区服「九天」，默认副本更新为洛阳之战（10人普通 / 25人普通 / 25人英雄），老用户只补缺少的难度',
+      '内置赛季「暗影千机」「苍生铸世」，已有同名赛季保留不动；赛季支持「结束时间未知」，并按「开始 + 6 个月最近的周四」显示预计结束日',
+      '赛季下拉按时间倒序，新赛季在前；总览默认显示当前赛季',
+      '增益计算录入苍生铸世小吃小药（主属综合药 / 食物、珍馐宴、袖气、高粱酒），每层所需属性更新为根骨 45 / 体质 96',
+      '增益计算可开关显示 130 级小吃小药（按当前版本压缩后的数值），同类增益跨版本互斥；额外增益管理按资料片分页签',
+      '通用掉落新增周常腰挂（小鹿仙 / 兔每每 / 礼吉小灵机 / 咩椰）与侠客秘籍（铁骨衣·秘卷 / 调鼎道·秘卷），洛阳之战内置五件特殊掉落（可编辑删除）',
+      '录入记录的特殊掉落按「当前副本 / 周常挂件 / 侠客秘籍 / 材料」分组，点选标签多选，超出一行可展开',
+      '副本管理改为卡片：难度标签直接显示本周通关进度，可一次新建多个难度、补难度、整组重命名，拖动排序',
+      '角色管理改为双列卡片：显示本周各副本通关情况，「计入 CD 统计」开关，拖动排序与快速排序',
+      '总览改为工作台布局：收支趋势、角色收支明细 / 黑本收益、角色收益排行（点击筛选、可多选）、特殊掉落一屏可见',
+      '总览与收支明细：赛季与日期二选一，选赛季时日期框显示赛季起止；角色筛选支持多选',
+      '一周改为从周一 7:00（周 CD 重置）开始：周一 7:00 前记的账计入上一周，「本周」也在 7:00 后切换',
+      '顶栏显示万宝楼当前区服最低金价，可在设置中切换金价区服',
+      '统计图改为按需加载图表组件，打开总览更快',
+      '修复导出备份缺少部分数据、切换金价区服后显示旧价格、副本整组改名打乱顺序、应用长时间开着时每周 CD 不刷新等问题',
+      '修复 Windows 任务栏图标沿用旧缓存只显示一半：设置应用身份 ID 并在安装后刷新图标缓存（升级后如仍异常，请取消固定后重新固定）',
+    ]
+  },
   {
     version: 'v1.2.15',
     items: [
@@ -363,6 +428,12 @@ async function handleSettingSelect(key: string | number) {
     return
   }
 
+  if (key === 'gold-server') {
+    if (!window.electronAPI) { showAppOnlyTip(); return }
+    showGoldServer.value = true
+    return
+  }
+
   if (key === 'download-ocr') {
     if (!window.electronAPI) { showAppOnlyTip(); return }
     setLoading(true)
@@ -381,7 +452,7 @@ async function handleSettingSelect(key: string | number) {
   if (key === 'export-data') {
     if (!window.electronAPI) { showAppOnlyTip(); return }
     try {
-      const state = JSON.parse(JSON.stringify({ roles: tracker.roles.value, dungeons: tracker.dungeons.value, records: tracker.records.value, columnConfig: tracker.columnConfig.value, wineBury: tracker.wineBury.value, seasons: tracker.seasons.value, groupBrands: tracker.groupBrands.value, dungeonOrder: tracker.dungeonOrder.value, specialDrops: tracker.specialDrops.value, buffCalc: tracker.buffCalc.value }))
+      const state = tracker.exportState()
       const result = await window.electronAPI.exportData(state)
       if (result?.ok) {
         message.success('数据已成功导出')
@@ -453,6 +524,47 @@ async function handleSettingSelect(key: string | number) {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.gold-price {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid #e0e0e6;
+  border-radius: 14px;
+  background: #fafafc;
+  color: #606266;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.gold-price:hover:not(:disabled) {
+  border-color: #18a058;
+  color: #18a058;
+}
+
+.gold-price:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.gold-price-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.gold-price-text {
+  white-space: nowrap;
 }
 
 .header-brand {

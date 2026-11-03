@@ -4,9 +4,12 @@
       <n-form inline class="query-form">
         <n-form-item label="角色">
           <n-select
-            v-model:value="filters.roleId"
+            v-model:value="filters.roleIds"
+            multiple
             clearable
             filterable
+            max-tag-count="responsive"
+            :render-tag="renderRoleTag"
             :options="roleOptions"
             :render-label="renderRoleOption"
             placeholder="全部角色"
@@ -42,7 +45,7 @@
             v-model:value="filters.seasonId"
             clearable
             :options="seasonOptions"
-            placeholder="选择赛季"
+            placeholder="全部赛季"
             :style="fieldStyle"
             @update:value="onSeasonChange"
           />
@@ -53,6 +56,8 @@
             type="daterange"
             clearable
             :shortcuts="dateRangeShortcuts"
+            :start-placeholder="seasonPlaceholder.start"
+            :end-placeholder="seasonPlaceholder.end"
             :style="fieldStyle"
             @update:value="onFilterRangeUpdate"
           />
@@ -154,20 +159,16 @@
       </n-form-item>
       <n-form-item v-if="matchedAddDrops.length > 0" label="特殊掉落" class="form-item-drops">
         <div class="drop-stack">
-          <n-checkbox v-model:checked="addForm.hasSpecialDrop">本次有特殊掉落</n-checkbox>
-          <div v-if="addForm.hasSpecialDrop" class="drop-checkbox-group">
-            <n-checkbox
-              v-for="d in matchedAddDrops"
-              :key="d.id"
-              :checked="addForm.specialDropIds.includes(d.id)"
-              @update:checked="(v: boolean) => toggleAddDrop(d.id, v)"
-            >
-              <span class="drop-checkbox-label" :style="{ color: dropNameColor(d.itemName) }">
-                <img :src="resolveDropIcon(d.iconBase64)" class="drop-checkbox-icon" />
-                {{ d.itemName }}
-              </span>
-            </n-checkbox>
+          <div class="drop-switch-row">
+            <n-checkbox v-model:checked="addForm.hasSpecialDrop">本次有特殊掉落</n-checkbox>
+            <span v-if="addForm.hasSpecialDrop && addForm.specialDropIds.length" class="drop-count">已选 {{ addForm.specialDropIds.length }} 件</span>
           </div>
+          <SpecialDropPicker
+            v-if="addForm.hasSpecialDrop"
+            :drops="matchedAddDrops"
+            :selected-ids="addForm.specialDropIds"
+            @toggle="toggleAddDrop"
+          />
         </div>
       </n-form-item>
       <n-form-item label="收入">
@@ -254,20 +255,16 @@
       </n-form-item>
       <n-form-item v-if="matchedEditDrops.length > 0" label="特殊掉落" class="form-item-drops">
         <div class="drop-stack">
-          <n-checkbox v-model:checked="editForm.hasSpecialDrop">本次有特殊掉落</n-checkbox>
-          <div v-if="editForm.hasSpecialDrop" class="drop-checkbox-group">
-            <n-checkbox
-              v-for="d in matchedEditDrops"
-              :key="d.id"
-              :checked="editForm.specialDropIds.includes(d.id)"
-              @update:checked="(v: boolean) => toggleEditDrop(d.id, v)"
-            >
-              <span class="drop-checkbox-label" :style="{ color: dropNameColor(d.itemName) }">
-                <img :src="resolveDropIcon(d.iconBase64)" class="drop-checkbox-icon" />
-                {{ d.itemName }}
-              </span>
-            </n-checkbox>
+          <div class="drop-switch-row">
+            <n-checkbox v-model:checked="editForm.hasSpecialDrop">本次有特殊掉落</n-checkbox>
+            <span v-if="editForm.hasSpecialDrop && editForm.specialDropIds.length" class="drop-count">已选 {{ editForm.specialDropIds.length }} 件</span>
           </div>
+          <SpecialDropPicker
+            v-if="editForm.hasSpecialDrop"
+            :drops="matchedEditDrops"
+            :selected-ids="editForm.specialDropIds"
+            @toggle="toggleEditDrop"
+          />
         </div>
       </n-form-item>
       <n-form-item label="收入">
@@ -378,6 +375,7 @@ import { dropNameColor, resolveDropIcon } from '../../utils/specialDrop'
 import { normalizePersonName } from '../../utils/leader'
 import SchoolBadge from '../shared/SchoolBadge.vue'
 import ExpandableTagRow from '../shared/ExpandableTagRow.vue'
+import SpecialDropPicker from '../shared/SpecialDropPicker.vue'
 import type { OcrFillResult } from './ocr'
 
 const tracker = useTracker()
@@ -385,8 +383,8 @@ const { ocrReady } = useOcrState()
 const dialog = useDialog()
 const fieldStyle = { width: '340px', maxWidth: '100%' }
 
-const filters = reactive<{ roleId: string | null; dungeonId: string | null; range: [number, number] | null; keyword: string; seasonId: string | null; groupBrand: string | null }>({
-  roleId: null,
+const filters = reactive<{ roleIds: string[]; dungeonId: string | null; range: [number, number] | null; keyword: string; seasonId: string | null; groupBrand: string | null }>({
+  roleIds: [],
   dungeonId: null,
   range: tracker.getCurrentWeekRange(),
   keyword: '',
@@ -394,21 +392,33 @@ const filters = reactive<{ roleId: string | null; dungeonId: string | null; rang
   groupBrand: null
 })
 
-const seasonOptions = computed(() => tracker.seasons.value.map((s) => ({ label: s.name, value: s.id })))
+// 时间倒序：新赛季在前
+const seasonOptions = computed(() => tracker.sortedSeasons.value.map((s) => ({ label: s.name, value: s.id })))
 
+// 赛季与日期二选一（与总览一致）：选赛季时日期框清空、按赛季起止筛选；手动选日期时清空赛季；都不填看全部
 function onSeasonChange(seasonId: string | null) {
-  if (!seasonId) return
-  const season = tracker.seasons.value.find((s) => s.id === seasonId)
-  if (season) filters.range = [season.startTs, season.endTs]
+  if (seasonId) filters.range = null
 }
 
 function onFilterRangeUpdate(value: [number, number] | null) {
-  if (!filters.seasonId) return
-  const season = tracker.seasons.value.find((s) => s.id === filters.seasonId)
-  if (!season || !value || value[0] !== season.startTs || value[1] !== season.endTs) {
-    filters.seasonId = null
-  }
+  if (value) filters.seasonId = null
 }
+
+// 选了赛季时日期框用灰色占位文字显示赛季起止；结束时间未知显示估算的结束日
+const seasonPlaceholder = computed(() => {
+  const season = filters.seasonId ? tracker.seasons.value.find((s) => s.id === filters.seasonId) : null
+  if (!season) return { start: '开始日期', end: '结束日期' }
+  const end = season.endTs === null ? `预计 ${toYmd(tracker.estimateSeasonEndTs(season.startTs))}` : toYmd(season.endTs)
+  return { start: toYmd(season.startTs), end }
+})
+
+const effectiveRange = computed<[number, number] | null>(() => {
+  if (filters.seasonId) {
+    const season = tracker.seasons.value.find((s) => s.id === filters.seasonId)
+    if (season) return tracker.getSeasonRange(season)
+  }
+  return filters.range
+})
 
 const showAdd = ref(false)
 const showEdit = ref(false)
@@ -637,7 +647,7 @@ function renderDungeonCascaderLabel(option: CascaderOption) {
   return label
 }
 
-const rows = computed(() => tracker.queryRecords(filters))
+const rows = computed(() => tracker.queryRecords({ ...filters, roleId: null, range: effectiveRange.value }))
 
 // ─── 下拉加载（每次 +10），排序对全量数据生效 ───
 const PAGE_SIZE = 10
@@ -826,6 +836,11 @@ watch(
   }
 )
 
+// 多选时输入框里的标签只显示角色名，避免一个标签就占满输入框、全部折叠成「+N」
+function renderRoleTag({ option, handleClose }: { option: { value?: string | number }; handleClose: () => void }) {
+  return h(NTag, { size: 'medium', closable: true, onClose: (e: MouseEvent) => { e.stopPropagation(); handleClose() } }, { default: () => String(option.value ?? '') })
+}
+
 function renderRoleOption(option: { value?: string | number; label?: string | number }) {
   const roleId = String(option.value ?? '')
   const role = roleMap.value.get(roleId)
@@ -851,7 +866,7 @@ function renderSchoolOption(option: { label?: string | number }) {
 }
 
 function resetFilters() {
-  filters.roleId = null
+  filters.roleIds = []
   filters.dungeonId = null
   filters.range = tracker.getCurrentWeekRange()
   filters.keyword = ''
@@ -1304,30 +1319,16 @@ const columns = computed(() =>
   gap: 6px;
   width: 100%;
 }
-.drop-checkbox-group {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 6px 8px;
-}
-.drop-checkbox-group :deep(.n-checkbox) {
+.drop-switch-row {
+  /* 与左侧表单标签同高，保证「特殊掉落」与勾选框水平对齐 */
+  display: flex;
   align-items: center;
-  min-width: 0;
+  gap: 12px;
+  min-height: var(--n-blank-height, 34px);
 }
-.drop-checkbox-group :deep(.n-checkbox__label) {
-  padding-left: 6px;
-  white-space: nowrap;
+.drop-count {
   font-size: 12px;
-}
-.drop-checkbox-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-.drop-checkbox-icon {
-  width: 18px;
-  height: 18px;
-  object-fit: cover;
-  border-radius: 3px;
+  color: #18a058;
 }
 
 .load-more-sentinel {

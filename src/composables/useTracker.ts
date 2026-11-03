@@ -1,10 +1,10 @@
 import { computed, ref } from 'vue'
-import { DEFAULT_DUNGEONS, DIFFICULTY_OPTIONS, FIXED_DUNGEON_LABEL, PLAYER_OPTIONS, SCHOOLS, SERVERS } from '../constants/game'
-import { DEFAULT_SPECIAL_DROPS } from '../utils/specialDrop'
-import { BUFF_DEFS, BUFF_UNIT_DEFAULTS, type BuffStat } from '../constants/buffCalc'
+import { DEFAULT_DUNGEONS, DEFAULT_SEASONS, DIFFICULTY_OPTIONS, FIXED_DUNGEON_LABEL, PLAYER_OPTIONS, SCHOOLS, SERVERS } from '../constants/game'
+import { DEFAULT_DUNGEON_DROPS, DEFAULT_SPECIAL_DROPS } from '../utils/specialDrop'
+import { BUFF_DEFS, BUFF_EXPANSIONS, DEFAULT_BUFF_EXPANSION, LEGACY_BUFF_EXPANSION, type BuffStat } from '../constants/buffCalc'
 import { EQUIP_TYPES } from '../constants/equip'
 import { loadState, saveState } from '../services/storage'
-import { getCurrentMonthRange, getCurrentWeekRange, toYmd } from '../utils/date'
+import { getCurrentMonthRange, getCurrentWeekRange, toYmd, WEEK_RESET_HOUR } from '../utils/date'
 import { normalizePersonName } from '../utils/leader'
 import type { BuffCalcState, Dungeon, GroupBrand, LongUseItem, RecordItem, Role, Season, SpecialDrop, StoreState, WineBuryItem } from '../types'
 
@@ -23,14 +23,47 @@ const seasons = ref<Season[]>([])
 const groupBrands = ref<GroupBrand[]>([])
 const buffCalc = ref<BuffCalcState>(normalizeBuffCalc(undefined))
 const longUse = ref<LongUseItem[]>([])
+const seededDungeons = ref<string[]>([])
+const seededSeasons = ref<string[]>([])
+const seededDrops = ref<string[]>([])
+// 分钟级时钟：依赖「当前时间」的计算（如每周 CD 是否已重置）读取它，跨过重置点后自动重算
+const nowMinute = ref(Date.now())
+if (typeof window !== 'undefined') window.setInterval(() => { nowMinute.value = Date.now() }, 60 * 1000)
 const newlyAddedRoleIds = ref<Set<string>>(new Set())
 
+function positiveInt(v: unknown): number {
+  const n = Math.floor(Number(v))
+  return n > 0 ? n : 0
+}
+
+// 与默认值合并：后续版本新增的 buff 自动补齐默认数值。
+// 例外：130 级（lv130:）物品曾以 0 作为「数值未知」的占位默认值并被存下，补数据后存的 0 改用新默认值；
+// 其余 buff 存的 0 视为用户有意设置，保留
+function mergeBuffValues(saved?: Record<string, number>): Record<string, number> {
+  const merged: Record<string, number> = Object.fromEntries(BUFF_DEFS.map((d) => [d.key, d.defaultValue]))
+  Object.entries(saved ?? {}).forEach(([key, value]) => {
+    if (key.startsWith('lv130:') && Number(value) === 0 && (merged[key] ?? 0) > 0) return
+    merged[key] = value
+  })
+  return merged
+}
+
 function normalizeBuffCalc(input?: Partial<BuffCalcState> | null): BuffCalcState {
+  const savedUnits = input?.units ?? {}
+  const units: BuffCalcState['units'] = {}
+  BUFF_EXPANSIONS.forEach((exp) => {
+    const saved = savedUnits[exp.key]
+    // 旧数据只有一组 unitSpirit/unitVitality，归属到暗影千机
+    const legacy = exp.key === LEGACY_BUFF_EXPANSION ? { spirit: input?.unitSpirit, vitality: input?.unitVitality } : undefined
+    units[exp.key] = {
+      spirit: positiveInt(saved?.spirit) || positiveInt(legacy?.spirit) || (exp.unitDefaults.spirit ?? 0),
+      vitality: positiveInt(saved?.vitality) || positiveInt(legacy?.vitality) || (exp.unitDefaults.vitality ?? 0)
+    }
+  })
   return {
-    unitSpirit: Number(input?.unitSpirit) > 0 ? Math.floor(Number(input!.unitSpirit)) : BUFF_UNIT_DEFAULTS.spirit,
-    unitVitality: Number(input?.unitVitality) > 0 ? Math.floor(Number(input!.unitVitality)) : BUFF_UNIT_DEFAULTS.vitality,
-    // 与默认值合并：后续版本新增的 buff 自动补齐默认数值
-    buffValues: { ...Object.fromEntries(BUFF_DEFS.map((d) => [d.key, d.defaultValue])), ...(input?.buffValues ?? {}) },
+    showPrevExpansion: Boolean(input?.showPrevExpansion),
+    units,
+    buffValues: mergeBuffValues(input?.buffValues),
     buffDefaults: { ...(input?.buffDefaults ?? {}) },
     roleBase: { ...(input?.roleBase ?? {}) },
     roleSelected: { ...(input?.roleSelected ?? {}) }
@@ -169,6 +202,8 @@ function init() {
 
   specialDrops.value = Array.isArray(state.specialDrops) ? state.specialDrops : []
   seasons.value = Array.isArray(state.seasons) ? state.seasons : []
+  seededSeasons.value = Array.isArray(state.seededSeasons) ? state.seededSeasons.slice() : []
+  const seasonsTouched = seedDefaultSeasons()
   buffCalc.value = normalizeBuffCalc(state.buffCalc)
   longUse.value = Array.isArray(state.longUse) ? state.longUse : []
 
@@ -205,18 +240,13 @@ function init() {
     }
   })
 
+  seededDrops.value = Array.isArray(state.seededDrops) ? state.seededDrops.slice() : []
+  if (seedDefaultDungeonDrops()) dropsTouched = true
+
   if (dedupeSpecialDropsAndRemapRecords()) dropsTouched = true
 
-  if (dungeons.value.length === 0) {
-    dungeons.value = DEFAULT_DUNGEONS.map((item) => ({
-      id: makeId('dungeon_default'),
-      players: item.players,
-      difficulty: item.difficulty,
-      name: item.name,
-      followed: false
-    }))
-    persist()
-  }
+  seededDungeons.value = Array.isArray(state.seededDungeons) ? state.seededDungeons.slice() : []
+  const dungeonsTouched = seedDefaultDungeons()
 
   // 副本顺序：优先读持久化数据；缺失时根据现有 pinned + 字母序生成初始顺序（一次性迁移）
   if (Array.isArray(state.dungeonOrder)) {
@@ -242,11 +272,85 @@ function init() {
   }
 
   // 各类迁移统一在状态全部加载完成后落盘
-  if (dropsTouched || brandsTouched) persist()
+  if (dropsTouched || brandsTouched || dungeonsTouched || seasonsTouched) persist()
+}
+
+// 补齐默认副本：每个「副本名|人数|难度」组合只补一次（记入 seededDungeons）。
+// 用户已自建的组合跳过，只补缺的；补过之后用户再删掉也不会补回。
+// 新资料片只需改 DEFAULT_DUNGEONS；给已有副本追加难度（如后续开放挑战）同样会自动补给老用户。
+function dungeonSeedKey(item: { name: string; players: string; difficulty: string }): string {
+  return `${item.name}|${item.players}|${item.difficulty}`
+}
+
+// 补齐内置副本掉落：作为普通掉落（可编辑删除）加入，每项只补一次；已有同名掉落就跳过只记标记
+function seedDefaultDungeonDrops(): boolean {
+  const done = new Set(seededDrops.value)
+  const keyOf = (d: { dungeonName: string; itemName: string }) => `${d.dungeonName}|${d.itemName}`
+  const pending = DEFAULT_DUNGEON_DROPS.filter((d) => !done.has(keyOf(d)))
+  if (pending.length === 0) return false
+  pending.forEach((d) => {
+    const exists = specialDrops.value.some((x) => !x.matchAll && x.dungeonName === d.dungeonName && x.itemName === d.itemName)
+    if (!exists) {
+      specialDrops.value.push({ id: makeId('drop_dungeon'), dungeonName: d.dungeonName, itemName: d.itemName, iconBase64: `preset:${d.iconKey}` })
+    }
+  })
+  seededDrops.value = [...seededDrops.value, ...pending.map(keyOf)]
+  return true
+}
+
+function localDayTs(ymd: string): number {
+  const [y, m, d] = ymd.split('-').map(Number)
+  return new Date(y, m - 1, d).getTime()
+}
+
+// 补齐内置赛季：每个只补一次；同名或时间与已有赛季重叠（用户自己建过）就跳过，只记标记
+function seedDefaultSeasons(): boolean {
+  const done = new Set(seededSeasons.value)
+  const pending = DEFAULT_SEASONS.filter((item) => !done.has(item.name))
+  if (pending.length === 0) return false
+  pending.forEach((item) => {
+    const startTs = localDayTs(item.start)
+    const endTs = item.end ? localDayTs(item.end) : null
+    const exists = seasons.value.some((s) => s.name === item.name) || findSeasonOverlap(startTs, endTs)
+    if (!exists) seasons.value.push({ id: makeId('season_default'), name: item.name, startTs, endTs })
+  })
+  seededSeasons.value = [...seededSeasons.value, ...pending.map((item) => item.name)]
+  return true
+}
+
+function seedDefaultDungeons(): boolean {
+  const done = new Set(seededDungeons.value)
+  const pending = DEFAULT_DUNGEONS.filter((item) => !done.has(dungeonSeedKey(item)))
+  if (pending.length === 0) return false
+  const missing = pending.filter(
+    (item) => !dungeons.value.some((d) => dungeonSeedKey(d) === dungeonSeedKey(item))
+  )
+  dungeons.value = [
+    ...dungeons.value,
+    ...missing.map((item) => ({
+      id: makeId('dungeon_default'),
+      players: item.players,
+      difficulty: item.difficulty,
+      name: item.name,
+      followed: false
+    }))
+  ]
+  seededDungeons.value = [...seededDungeons.value, ...pending.map(dungeonSeedKey)]
+  return true
+}
+
+// 完整的持久化快照：写盘与导出共用，新增字段只需在这里加一处
+function buildState(): StoreState {
+  return { roles: roles.value, dungeons: dungeons.value, records: records.value, columnConfig: columnConfig.value, wineBury: wineBury.value, dungeonOrder: dungeonOrder.value, specialDrops: specialDrops.value, seasons: seasons.value, groupBrands: groupBrands.value, buffCalc: buffCalc.value, longUse: longUse.value, seededDungeons: seededDungeons.value, seededSeasons: seededSeasons.value, seededDrops: seededDrops.value }
 }
 
 function persist() {
-  saveState({ roles: roles.value, dungeons: dungeons.value, records: records.value, columnConfig: columnConfig.value, wineBury: wineBury.value, dungeonOrder: dungeonOrder.value, specialDrops: specialDrops.value, seasons: seasons.value, groupBrands: groupBrands.value, buffCalc: buffCalc.value, longUse: longUse.value })
+  saveState(buildState())
+}
+
+// 导出用：剥离响应式代理后的纯数据
+function exportState(): StoreState {
+  return JSON.parse(JSON.stringify(buildState())) as StoreState
 }
 
 // 特殊掉落与人数/难度解绑：同副本名称下的同名掉落视为同一条，
@@ -390,6 +494,25 @@ function updateDungeon(id: string, payload: Omit<Dungeon, 'id' | 'followed'>): {
   target.players = payload.players
   target.difficulty = payload.difficulty
   target.name = name
+  reconcileDungeonOrder()
+  persist()
+  return { ok: true }
+}
+
+// 整组改名（含已隐藏的难度）：顺序原地替换；新名已存在时合并到该组，但有相同「人数+难度」则拒绝
+function renameDungeonGroup(oldName: string, nextName: string): { ok: boolean; message?: string } {
+  const name = nextName.trim()
+  if (!name) return { ok: false, message: '副本名称不能为空' }
+  if (name === oldName) return { ok: true }
+  const targets = dungeons.value.filter((d) => d.name === oldName)
+  if (targets.length === 0) return { ok: false, message: '副本不存在' }
+  const existing = dungeons.value.filter((d) => d.name === name)
+  const clash = targets.find((t) => existing.some((e) => e.players === t.players && e.difficulty === t.difficulty))
+  if (clash) return { ok: false, message: `「${name}」已有 ${clash.players}${clash.difficulty}，不能合并` }
+  targets.forEach((d) => { d.name = name })
+  dungeonOrder.value = existing.length
+    ? dungeonOrder.value.filter((n) => n !== oldName)
+    : dungeonOrder.value.map((n) => (n === oldName ? name : n))
   reconcileDungeonOrder()
   persist()
   return { ok: true }
@@ -653,19 +776,48 @@ function setColumnConfig(keys: string[]) {
   persist()
 }
 
-function findSeasonOverlap(startTs: number, endTs: number, excludeId?: string) {
+// 结束时间未知的赛季视为一直延续
+function findSeasonOverlap(startTs: number, endTs: number | null, excludeId?: string) {
+  const end = endTs ?? Number.POSITIVE_INFINITY
   return seasons.value.find((s) => {
     if (excludeId && s.id === excludeId) return false
-    return startTs <= s.endTs && s.startTs <= endTs
+    return startTs <= (s.endTs ?? Number.POSITIVE_INFINITY) && s.startTs <= end
   })
 }
 
-function addSeason(payload: { name: string; startTs: number; endTs: number }): { ok: boolean; message?: string } {
+// 估算结束时间未知的赛季何时结束（只用于展示，不写入数据）：
+// 通常一个赛季约 6 个月，新资料片一般周四更新 → 开始日 + 6 个月，取离该日最近的周四（往前往后都算）
+// 作为下赛季开始，前一天为本赛季结束
+function estimateSeasonEndTs(startTs: number): number {
+  const start = new Date(startTs)
+  const target = new Date(start.getFullYear(), start.getMonth() + 6, 1)
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate()
+  target.setDate(Math.min(start.getDate(), lastDay))
+  const forward = (4 - target.getDay() + 7) % 7 // 到下一个周四的天数 0~6
+  const backward = 7 - forward // 到上一个周四的天数
+  // 取更近的一边；前后一样近时按推后处理（7 天周期下实际不会相等）
+  target.setDate(target.getDate() + (forward <= backward ? forward : -backward))
+  target.setDate(target.getDate() - 1)
+  return target.getTime()
+}
+
+// 按开始时间倒序（新赛季在前），用于各处下拉和赛季设置列表
+const sortedSeasons = computed(() => [...seasons.value].sort((a, b) => b.startTs - a.startTs))
+
+// 赛季用于筛选的日期区间：结束时间未知时截止到今天（今天早于开始日则用开始日）
+function getSeasonRange(season: Season): [number, number] {
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  return [season.startTs, season.endTs ?? Math.max(today, season.startTs)]
+}
+
+function addSeason(payload: { name: string; startTs: number; endTs: number | null }): { ok: boolean; message?: string } {
   const name = payload.name.trim()
   if (!name) return { ok: false, message: '赛季名称不能为空' }
   if (seasons.value.some((s) => s.name === name)) return { ok: false, message: '赛季名称已存在' }
-  if (!Number.isFinite(payload.startTs) || !Number.isFinite(payload.endTs)) return { ok: false, message: '请选择起止时间' }
-  if (payload.startTs > payload.endTs) return { ok: false, message: '开始时间不能晚于结束时间' }
+  if (!Number.isFinite(payload.startTs)) return { ok: false, message: '请选择开始时间' }
+  if (payload.endTs !== null && !Number.isFinite(payload.endTs)) return { ok: false, message: '请选择结束时间' }
+  if (payload.endTs !== null && payload.startTs > payload.endTs) return { ok: false, message: '开始时间不能晚于结束时间' }
   const overlap = findSeasonOverlap(payload.startTs, payload.endTs)
   if (overlap) return { ok: false, message: `时间区间与赛季「${overlap.name}」重叠` }
   seasons.value.push({ id: makeId('season'), name, startTs: payload.startTs, endTs: payload.endTs })
@@ -673,14 +825,15 @@ function addSeason(payload: { name: string; startTs: number; endTs: number }): {
   return { ok: true }
 }
 
-function updateSeason(id: string, payload: { name: string; startTs: number; endTs: number }): { ok: boolean; message?: string } {
+function updateSeason(id: string, payload: { name: string; startTs: number; endTs: number | null }): { ok: boolean; message?: string } {
   const target = seasons.value.find((s) => s.id === id)
   if (!target) return { ok: false, message: '赛季不存在' }
   const name = payload.name.trim()
   if (!name) return { ok: false, message: '赛季名称不能为空' }
   if (seasons.value.some((s) => s.name === name && s.id !== id)) return { ok: false, message: '赛季名称已存在' }
-  if (!Number.isFinite(payload.startTs) || !Number.isFinite(payload.endTs)) return { ok: false, message: '请选择起止时间' }
-  if (payload.startTs > payload.endTs) return { ok: false, message: '开始时间不能晚于结束时间' }
+  if (!Number.isFinite(payload.startTs)) return { ok: false, message: '请选择开始时间' }
+  if (payload.endTs !== null && !Number.isFinite(payload.endTs)) return { ok: false, message: '请选择结束时间' }
+  if (payload.endTs !== null && payload.startTs > payload.endTs) return { ok: false, message: '开始时间不能晚于结束时间' }
   const overlap = findSeasonOverlap(payload.startTs, payload.endTs, id)
   if (overlap) return { ok: false, message: `时间区间与赛季「${overlap.name}」重叠` }
   target.name = name
@@ -698,10 +851,16 @@ function deleteSeason(id: string): { ok: boolean } {
 
 function setBuffCalcUnit(stat: BuffStat, value: number) {
   const v = Math.max(1, Math.floor(Number(value) || 0))
-  if (stat === 'spirit') buffCalc.value.unitSpirit = v
-  else buffCalc.value.unitVitality = v
+  const exp = DEFAULT_BUFF_EXPANSION
+  buffCalc.value.units[exp] = { ...(buffCalc.value.units[exp] ?? { spirit: 0, vitality: 0 }), [stat]: v }
   persist()
 }
+
+function setBuffCalcShowPrev(value: boolean) {
+  buffCalc.value.showPrevExpansion = value
+  persist()
+}
+
 
 function setBuffCalcValue(key: string, value: number) {
   buffCalc.value.buffValues[key] = Math.max(0, Math.floor(Number(value) || 0))
@@ -781,10 +940,16 @@ function importState(state: StoreState) {
   wineBury.value = Array.isArray(state.wineBury) ? state.wineBury : []
   specialDrops.value = Array.isArray(state.specialDrops) ? state.specialDrops : []
   seasons.value = Array.isArray(state.seasons) ? state.seasons : []
+  seededSeasons.value = Array.isArray(state.seededSeasons) ? state.seededSeasons.slice() : []
+  seedDefaultSeasons()
+  seededDrops.value = Array.isArray(state.seededDrops) ? state.seededDrops.slice() : []
+  seedDefaultDungeonDrops()
   groupBrands.value = Array.isArray(state.groupBrands) ? state.groupBrands : seedGroupBrandsFromRecords(records.value)
   buffCalc.value = normalizeBuffCalc(state.buffCalc)
   longUse.value = Array.isArray(state.longUse) ? state.longUse : []
   dungeonOrder.value = Array.isArray(state.dungeonOrder) ? state.dungeonOrder.slice() : []
+  seededDungeons.value = Array.isArray(state.seededDungeons) ? state.seededDungeons.slice() : []
+  seedDefaultDungeons()
   dedupeSpecialDropsAndRemapRecords()
   reconcileDungeonOrder()
   persist()
@@ -815,13 +980,25 @@ function getGroupBrandRoster() {
   return result
 }
 
-function queryRecords(filters: { roleId: string | null; dungeonId: string | null; range: [number, number] | null; keyword?: string; groupBrand?: string | null }) {
+// 记录的统计归属日：周一 7:00（周 CD 重置）前保存、且日期就是当天周一的记录，归到前一天（周日），
+// 从而算进上一周；手动改过日期的记录（日期与保存时刻不是同一天）不处理
+function recordStatDate(r: { date: string; createdAt?: number }): string {
+  if (!r.createdAt) return r.date
+  const saved = new Date(r.createdAt)
+  if (saved.getDay() !== 1 || saved.getHours() >= WEEK_RESET_HOUR || toYmd(r.createdAt) !== r.date) return r.date
+  return toYmd(new Date(saved.getFullYear(), saved.getMonth(), saved.getDate() - 1).getTime())
+}
+
+// roleIds 为多选角色（非空时只保留这些角色），与 roleId 单选可同时存在
+function queryRecords(filters: { roleId: string | null; roleIds?: string[]; dungeonId: string | null; range: [number, number] | null; keyword?: string; groupBrand?: string | null }) {
+  const roleIdSet = filters.roleIds?.length ? new Set(filters.roleIds) : null
   const [start, end] = filters.range ?? [Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY]
   const kw = filters.keyword?.trim().toLowerCase() ?? ''
   return records.value
     .filter((r) => {
-      const t = new Date(`${r.date}T00:00:00`).getTime()
+      const t = new Date(`${recordStatDate(r)}T00:00:00`).getTime()
       if (filters.roleId && r.roleId !== filters.roleId) return false
+      if (roleIdSet && !roleIdSet.has(r.roleId)) return false
       if (filters.dungeonId && r.dungeonId !== filters.dungeonId) return false
       if (filters.groupBrand && (r.groupBrand?.trim() ?? '') !== filters.groupBrand) return false
       if (t < start || t > end) return false
@@ -840,6 +1017,7 @@ function queryRecords(filters: { roleId: string | null; dungeonId: string | null
       const brandEntity = r.groupBrand ? groupBrandMap.value.get(r.groupBrand.trim()) : undefined
       return {
         ...r,
+        statDate: recordStatDate(r),
         blacklisted: brandEntity ? Boolean(brandEntity.blacklisted) : Boolean(r.blacklisted),
         leaderId: normalizePersonName(r.leaderId) || undefined,
         blackPerson: normalizePersonName(r.blackPerson) || undefined,
@@ -851,6 +1029,7 @@ function queryRecords(filters: { roleId: string | null; dungeonId: string | null
 }
 
 function getWeeklyCdStatusByRole() {
+  void nowMinute.value // 建立对时间的响应式依赖
   const [weekMondayStart] = getCurrentWeekRange()
   const now = new Date()
   const nowTs = now.getTime()
@@ -935,6 +1114,11 @@ export function useTracker() {
     addSeason,
     updateSeason,
     deleteSeason,
+    getSeasonRange,
+    recordStatDate,
+    exportState,
+    estimateSeasonEndTs,
+    sortedSeasons,
     frequentGroupBrands,
     getLeadersForBrand,
     groupBrands,
@@ -947,6 +1131,7 @@ export function useTracker() {
     deleteLongUseItem,
     buffCalc,
     setBuffCalcUnit,
+    setBuffCalcShowPrev,
     setBuffCalcValue,
     resetBuffCalcValues,
     saveBuffCalcDefaults,
@@ -962,6 +1147,7 @@ export function useTracker() {
     addDungeon,
     updateDungeon,
     deleteDungeon,
+    renameDungeonGroup,
     toggleDungeonFollow,
     toggleDungeonHidden,
     hideDungeon,
