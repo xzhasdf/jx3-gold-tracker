@@ -15,11 +15,15 @@
     "output": "release"
   },
   "mac": {
-    "target": ["dmg"],
+    "target": [
+      "dmg"
+    ],
     "icon": "build/icon.png"
   },
   "win": {
-    "target": ["nsis"],
+    "target": [
+      "nsis"
+    ],
     "icon": "build/icon.ico"
   },
   "nsis": {
@@ -28,5 +32,9 @@
     "perMachine": false,
     "allowElevation": true,
     "include": "build/nsis-overrides.nsh"
-  }
+  },
+  "electronLanguages": [
+    "zh-CN",
+    "en-US"
+  ]
 }
