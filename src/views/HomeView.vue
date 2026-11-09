@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.3.0</span>
+          <span class="header-version">v1.3.1</span>
         </div>
         <div class="header-actions">
           <button
@@ -172,6 +172,17 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.3.1',
+    items: [
+      '久物主义新增「联动入账」：打开后，录入收支时支出达到设定金额，表单里会出现「久物主义」，勾选即可同时记入物品；金额用滑条设置，最低 1 砖、每档 5000 金，滑条上限默认 100 砖可修改',
+      '联动入账支持一条收支记多件物品，按页签切换；每件手动填名称、类型和价格，价格合计不超过本次支出；编辑收支时联动的物品一并同步，取消勾选则从久物主义删除',
+      '久物主义装备类型新增「其他」',
+      '副本管理可将副本「设为默认」（副本标题右侧「⋯」菜单），新增收支时默认选中；未设置时默认洛阳之战',
+      '修复 Windows 下窗口较窄时收支明细「操作」列按钮溢出表格、右侧多出一截空白',
+      '安装包体积大幅缩小',
+    ]
+  },
   {
     version: 'v1.3.0',
     items: [

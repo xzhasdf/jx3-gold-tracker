@@ -15,6 +15,61 @@
         </div>
       </div>
 
+      <div class="lu-link">
+        <div class="lu-link-head">
+          <div class="lu-link-main">
+            <span class="lu-link-title">联动入账</span>
+            <span class="lu-link-desc">录入收支时，支出达到金额就带出久物主义物品，一并入账</span>
+          </div>
+          <n-switch :value="linkSettings.enabled" @update:value="(v: boolean) => tracker.setLongUseLink({ enabled: v })" />
+        </div>
+        <div v-if="linkSettings.enabled" class="lu-link-ctrl">
+          <span class="lu-link-label">支出 ≥</span>
+          <n-slider
+            :value="linkSettings.threshold"
+            :min="LONG_USE_LINK_MIN"
+            :max="linkSettings.sliderMax"
+            :step="LONG_USE_LINK_STEP"
+            :tooltip="false"
+            class="lu-link-slider"
+            @update:value="onThresholdUpdate"
+          />
+          <span class="lu-link-steps">
+            <button
+              class="lu-step"
+              :disabled="linkSettings.threshold <= LONG_USE_LINK_MIN"
+              @click="stepThreshold(-1)"
+            >−</button>
+            <button
+              class="lu-step"
+              :disabled="linkSettings.threshold >= linkSettings.sliderMax"
+              @click="stepThreshold(1)"
+            >+</button>
+          </span>
+          <span class="lu-link-value"><MoneyValue :value="linkSettings.threshold" /></span>
+          <span class="lu-link-max">
+            <span class="lu-link-label">上限</span>
+            <template v-if="editingMax">
+              <n-input-number
+                v-model:value="maxDraft"
+                size="small"
+                :min="2"
+                :show-button="false"
+                class="lu-link-max-input"
+                @keyup.enter="confirmMaxEdit"
+              >
+                <template #suffix><img :src="iconBrick" class="lu-link-icon" /></template>
+              </n-input-number>
+              <n-button text type="primary" size="small" @click="confirmMaxEdit">确认</n-button>
+              <n-button text size="small" @click="editingMax = false">取消</n-button>
+            </template>
+            <span v-else class="lu-num-plain" title="点击修改" @click="startMaxEdit">
+              {{ sliderMaxBrick }}<img :src="iconBrick" class="lu-link-icon" /><span class="lu-edit-icon">✎</span>
+            </span>
+          </span>
+        </div>
+      </div>
+
       <div class="lu-filter">
         <span class="lu-chip" :class="{ active: filterType === null }" @click="filterType = null">
           全部<b>{{ allItems.length }}</b>
@@ -136,8 +191,9 @@ import { computed, reactive, ref } from 'vue'
 import { useDialog, useMessage } from 'naive-ui'
 import { useTracker } from '../../composables/useTracker'
 import MoneyValue from '../shared/MoneyValue.vue'
+import iconBrick from '../../assets/金砖.png'
 import { daysInclusive, toYmd } from '../../utils/date'
-import { EQUIP_ICONS, EQUIP_TYPES, type EquipType } from '../../constants/equip'
+import { EQUIP_ICONS, EQUIP_TYPES, LONG_USE_LINK_MIN, LONG_USE_LINK_STEP, type EquipType } from '../../constants/equip'
 import type { LongUseItem } from '../../types'
 
 const props = defineProps<{ show: boolean }>()
@@ -152,6 +208,35 @@ const dialog = useDialog()
 const message = useMessage()
 
 const roleOptions = computed(() => tracker.roleOptions.value)
+
+const linkSettings = computed(() => tracker.longUseLink.value)
+
+// 上限按砖显示、按砖填，存的是金；点数字进入编辑，确认才写入
+const sliderMaxBrick = computed(() => Math.floor(linkSettings.value.sliderMax / 10000))
+const editingMax = ref(false)
+const maxDraft = ref<number | null>(null)
+
+function startMaxEdit() {
+  maxDraft.value = sliderMaxBrick.value
+  editingMax.value = true
+}
+
+function confirmMaxEdit() {
+  if (maxDraft.value != null && maxDraft.value > 0) {
+    tracker.setLongUseLink({ sliderMax: Math.floor(maxDraft.value) * 10000 })
+  }
+  editingMax.value = false
+}
+
+// 滑条两侧的微调按钮：一次一档，越界由 store 归一化夹住
+function stepThreshold(dir: 1 | -1) {
+  tracker.setLongUseLink({ threshold: linkSettings.value.threshold + dir * LONG_USE_LINK_STEP })
+}
+
+function onThresholdUpdate(v: number | number[]) {
+  if (typeof v !== 'number') return
+  tracker.setLongUseLink({ threshold: v })
+}
 
 const filterType = ref<EquipType | null>(null)
 const showFormModal = ref(false)
@@ -349,6 +434,146 @@ function handleDelete(item: LongUseItem) {
   font-size: 15px;
   font-weight: 600;
   color: #1f2a44;
+}
+
+/* ── 联动入账设置 ─────────────────────────────────── */
+.lu-link {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border: 1px solid #edf0f3;
+  border-radius: 12px;
+}
+
+.lu-link-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lu-link-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.lu-link-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2a44;
+}
+
+.lu-link-desc {
+  font-size: 12px;
+  color: #9aa4b0;
+}
+
+.lu-link-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #f2f4f6;
+}
+
+.lu-link-label {
+  font-size: 13px;
+  color: #5a6672;
+}
+
+.lu-link-slider {
+  flex: 1;
+  min-width: 0;
+}
+
+.lu-link-steps {
+  display: inline-flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.lu-step {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #e0e4e8;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 14px;
+  line-height: 1;
+  color: #5a6672;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.lu-step:hover:not(:disabled) {
+  border-color: #18a058;
+  color: #18a058;
+}
+
+.lu-step:disabled {
+  color: #c8ced4;
+  cursor: not-allowed;
+}
+
+.lu-link-max {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.lu-link-max-input {
+  width: 90px;
+}
+
+.lu-link-icon {
+  height: 14px;
+  width: auto;
+}
+
+/* 与增益计算器「根骨」的点击修改样式一致 */
+.lu-num-plain {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #234;
+  cursor: pointer;
+  border-bottom: 1px dashed #9aa3b0;
+  padding-bottom: 1px;
+}
+
+.lu-num-plain:hover {
+  color: #3f83f8;
+  border-bottom-color: #3f83f8;
+}
+
+.lu-edit-icon {
+  font-size: 12px;
+  font-weight: 400;
+  color: #c0c4cc;
+}
+
+.lu-num-plain:hover .lu-edit-icon {
+  color: #3f83f8;
+}
+
+/* 固定宽度，拖动时数字变长不把滑条挤得来回跳 */
+.lu-link-value {
+  min-width: 96px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2a44;
+  white-space: nowrap;
+}
+
+.lu-link-label {
+  flex-shrink: 0;
 }
 
 /* ── 类型筛选 ─────────────────────────────────────── */

@@ -92,6 +92,17 @@ export interface LongUseItem {
   endDate?: string
   roleId?: string
   remark?: string
+  /** 由收支记录联动生成时，对应的收支记录 ID；编辑该收支时据此找回并同步 */
+  recordId?: string
+}
+
+export interface LongUseLinkSettings {
+  /** 录入收支时，支出达到阈值就在表单里带出久物主义物品，一并入账 */
+  enabled: boolean
+  /** 触发阈值，单位：金；最低 1 砖（10000 金），不超过 sliderMax */
+  threshold: number
+  /** 阈值滑条的上限，单位：金；默认 100 砖，用户可改 */
+  sliderMax: number
 }
 
 export interface Season {
@@ -114,8 +125,11 @@ export interface StoreState {
   groupBrands?: GroupBrand[]
   buffCalc?: BuffCalcState
   longUse?: LongUseItem[]
+  longUseLink?: LongUseLinkSettings
   /** 已补齐过的默认副本（`副本名|人数|难度`）：每个组合只给老用户补一次，之后用户删掉的不再补回 */
   seededDungeons?: string[]
+  /** 用户在副本管理里「设为默认」的副本名；新增收支时在该副本里按难度优先级选中，缺省或已失效时回退到内置默认 */
+  defaultDungeonName?: string
   /** 已补齐过的默认赛季名：每个只补一次，之后用户删掉的不再补回 */
   seededSeasons?: string[]
   /** 已补齐过的内置副本掉落（`副本名|物品名`）：每项只补一次，之后用户删掉的不再补回 */

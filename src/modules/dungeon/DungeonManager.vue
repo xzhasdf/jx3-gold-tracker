@@ -24,6 +24,7 @@
           <div class="dm-card-head">
             <span class="dm-handle" title="拖动排序">⠿</span>
             <span class="dm-name">{{ group.name }}</span>
+            <span v-if="group.name === effectiveDefaultName" class="dm-default-tag" title="新增收支时默认选中这个副本">★ 默认</span>
             <n-dropdown trigger="click" :options="groupMenuOptions(index)" @select="(key: string) => onGroupMenu(key, group)">
               <n-button text class="dm-more" title="更多操作">⋯</n-button>
             </n-dropdown>
@@ -217,6 +218,8 @@ function moveGroup(name: string, to: 'top' | 'bottom') {
 
 function groupMenuOptions(index: number): DropdownOption[] {
   return [
+    { label: groups.value[index]?.name === effectiveDefaultName.value ? '已是默认副本' : '设为默认', key: 'default', disabled: groups.value[index]?.name === effectiveDefaultName.value },
+    { type: 'divider', key: 'd0' },
     { label: '添加难度', key: 'add' },
     { label: '重命名', key: 'rename' },
     { type: 'divider', key: 'd1' },
@@ -228,11 +231,15 @@ function groupMenuOptions(index: number): DropdownOption[] {
 }
 
 function onGroupMenu(key: string, group: GroupItem) {
-  if (key === 'add') openCreate(group.name)
+  if (key === 'default') tracker.setDefaultDungeon(group.name)
+  else if (key === 'add') openCreate(group.name)
   else if (key === 'rename') openRename(group.name)
   else if (key === 'top' || key === 'bottom') moveGroup(group.name, key)
   else if (key === 'hide') tracker.toggleDungeonHidden(group.name)
 }
+
+// 当前实际生效的默认副本（含回退逻辑），用来标「默认」和禁用「设为默认」
+const effectiveDefaultName = computed(() => tracker.resolveDefaultDungeonName())
 
 const hiddenDungeons = computed(() =>
   tracker.dungeons.value
@@ -638,6 +645,15 @@ const rosterColumns: DataTableColumns<RosterRow> = [
   padding-top: 8px;
   border-top: 1px solid #efeff5;
 }
+.dm-default-tag {
+  padding: 0 7px;
+  border-radius: 9px;
+  background: #fdf6ec;
+  font-size: 12px;
+  line-height: 18px;
+  color: #f0a020;
+}
+
 .dm-hidden {
   margin-top: 16px;
   border-top: 1px dashed #e0e0e6;

@@ -2,11 +2,11 @@ import { computed, ref } from 'vue'
 import { DEFAULT_DUNGEONS, DEFAULT_SEASONS, DIFFICULTY_OPTIONS, FIXED_DUNGEON_LABEL, PLAYER_OPTIONS, SCHOOLS, SERVERS } from '../constants/game'
 import { DEFAULT_DUNGEON_DROPS, DEFAULT_SPECIAL_DROPS } from '../utils/specialDrop'
 import { BUFF_DEFS, BUFF_EXPANSIONS, DEFAULT_BUFF_EXPANSION, LEGACY_BUFF_EXPANSION, type BuffStat } from '../constants/buffCalc'
-import { EQUIP_TYPES } from '../constants/equip'
+import { EQUIP_TYPES, LONG_USE_LINK_DEFAULT_MAX, LONG_USE_LINK_MIN, LONG_USE_LINK_STEP } from '../constants/equip'
 import { loadState, saveState } from '../services/storage'
 import { getCurrentMonthRange, getCurrentWeekRange, toYmd, WEEK_RESET_HOUR } from '../utils/date'
 import { normalizePersonName } from '../utils/leader'
-import type { BuffCalcState, Dungeon, GroupBrand, LongUseItem, RecordItem, Role, Season, SpecialDrop, StoreState, WineBuryItem } from '../types'
+import type { BuffCalcState, Dungeon, GroupBrand, LongUseItem, LongUseLinkSettings, RecordItem, Role, Season, SpecialDrop, StoreState, WineBuryItem } from '../types'
 
 function makeId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -15,6 +15,7 @@ function makeId(prefix: string): string {
 const roles = ref<Role[]>([])
 const dungeons = ref<Dungeon[]>([])
 const dungeonOrder = ref<string[]>([])
+const defaultDungeonName = ref<string | undefined>(undefined)
 const records = ref<RecordItem[]>([])
 const columnConfig = ref<string[] | undefined>(undefined)
 const wineBury = ref<WineBuryItem[]>([])
@@ -23,6 +24,7 @@ const seasons = ref<Season[]>([])
 const groupBrands = ref<GroupBrand[]>([])
 const buffCalc = ref<BuffCalcState>(normalizeBuffCalc(undefined))
 const longUse = ref<LongUseItem[]>([])
+const longUseLink = ref<LongUseLinkSettings>(normalizeLongUseLink(undefined))
 const seededDungeons = ref<string[]>([])
 const seededSeasons = ref<string[]>([])
 const seededDrops = ref<string[]>([])
@@ -206,6 +208,7 @@ function init() {
   const seasonsTouched = seedDefaultSeasons()
   buffCalc.value = normalizeBuffCalc(state.buffCalc)
   longUse.value = Array.isArray(state.longUse) ? state.longUse : []
+  longUseLink.value = normalizeLongUseLink(state.longUseLink)
 
   // 清理已从 DEFAULT_SPECIAL_DROPS 移除的旧默认条目
   const validDefaultNames = new Set(DEFAULT_SPECIAL_DROPS.map((d) => d.itemName))
@@ -247,6 +250,7 @@ function init() {
 
   seededDungeons.value = Array.isArray(state.seededDungeons) ? state.seededDungeons.slice() : []
   const dungeonsTouched = seedDefaultDungeons()
+  defaultDungeonName.value = state.defaultDungeonName
 
   // 副本顺序：优先读持久化数据；缺失时根据现有 pinned + 字母序生成初始顺序（一次性迁移）
   if (Array.isArray(state.dungeonOrder)) {
@@ -341,7 +345,7 @@ function seedDefaultDungeons(): boolean {
 
 // 完整的持久化快照：写盘与导出共用，新增字段只需在这里加一处
 function buildState(): StoreState {
-  return { roles: roles.value, dungeons: dungeons.value, records: records.value, columnConfig: columnConfig.value, wineBury: wineBury.value, dungeonOrder: dungeonOrder.value, specialDrops: specialDrops.value, seasons: seasons.value, groupBrands: groupBrands.value, buffCalc: buffCalc.value, longUse: longUse.value, seededDungeons: seededDungeons.value, seededSeasons: seededSeasons.value, seededDrops: seededDrops.value }
+  return { roles: roles.value, dungeons: dungeons.value, records: records.value, columnConfig: columnConfig.value, wineBury: wineBury.value, dungeonOrder: dungeonOrder.value, specialDrops: specialDrops.value, seasons: seasons.value, groupBrands: groupBrands.value, buffCalc: buffCalc.value, longUse: longUse.value, longUseLink: longUseLink.value, defaultDungeonName: defaultDungeonName.value, seededDungeons: seededDungeons.value, seededSeasons: seededSeasons.value, seededDrops: seededDrops.value }
 }
 
 function persist() {
@@ -510,6 +514,7 @@ function renameDungeonGroup(oldName: string, nextName: string): { ok: boolean; m
   const clash = targets.find((t) => existing.some((e) => e.players === t.players && e.difficulty === t.difficulty))
   if (clash) return { ok: false, message: `「${name}」已有 ${clash.players}${clash.difficulty}，不能合并` }
   targets.forEach((d) => { d.name = name })
+  if (defaultDungeonName.value === oldName) defaultDungeonName.value = name
   dungeonOrder.value = existing.length
     ? dungeonOrder.value.filter((n) => n !== oldName)
     : dungeonOrder.value.map((n) => (n === oldName ? name : n))
@@ -541,6 +546,41 @@ function toggleDungeonHidden(name: string): { ok: boolean; message?: string } {
   reconcileDungeonOrder()
   persist()
   return { ok: true }
+}
+
+// 新增收支时的默认副本：用户设的副本（有可见难度）优先；否则取内置默认副本（DEFAULT_DUNGEONS，当前资料片的新副本），
+// 再否则在全部可见副本里挑；选定副本后，难度按 10人普通 → 25人普通 → 25人英雄 → 25人挑战 的顺序挑
+const DEFAULT_DUNGEON_PRIORITY: { players: Dungeon['players']; difficulty: Dungeon['difficulty'] }[] = [
+  { players: '10人', difficulty: '普通' },
+  { players: '25人', difficulty: '普通' },
+  { players: '25人', difficulty: '英雄' },
+  { players: '25人', difficulty: '挑战' }
+]
+
+function pickByPriority(list: Dungeon[]): Dungeon | undefined {
+  for (const p of DEFAULT_DUNGEON_PRIORITY) {
+    const hit = list.find((d) => d.players === p.players && d.difficulty === p.difficulty)
+    if (hit) return hit
+  }
+  return list[0]
+}
+
+/** 当前实际生效的默认副本名（含回退） */
+function resolveDefaultDungeonName(): string | undefined {
+  const visible = dungeons.value.filter((d) => !d.hidden)
+  const candidates = [defaultDungeonName.value, DEFAULT_DUNGEONS[0]?.name]
+  return candidates.find((n) => n && visible.some((d) => d.name === n)) ?? visible[0]?.name ?? dungeons.value[0]?.name
+}
+
+function resolveDefaultDungeonId(): string | undefined {
+  const name = resolveDefaultDungeonName()
+  const visible = dungeons.value.filter((d) => !d.hidden && d.name === name)
+  return (pickByPriority(visible) ?? dungeons.value.find((d) => d.name === name))?.id
+}
+
+function setDefaultDungeon(name: string) {
+  defaultDungeonName.value = name
+  persist()
 }
 
 function hideDungeon(id: string): { ok: boolean; message?: string } {
@@ -621,9 +661,10 @@ function addRecord(payload: {
   blacklisted?: boolean
   blackPerson?: string
   specialDropIds?: string[]
-}) {
+}): string {
+  const id = makeId('record')
   records.value.push({
-    id: makeId('record'),
+    id,
     roleId: payload.roleId,
     dungeonId: payload.dungeonId,
     date: toYmd(payload.dateTs),
@@ -639,6 +680,7 @@ function addRecord(payload: {
   })
   syncGroupBrandFromRecord(payload.groupBrand, payload.blacklisted)
   persist()
+  return id
 }
 
 function updateRecord(
@@ -744,7 +786,8 @@ function normalizeLongUse(payload: LongUsePayload): LongUsePayload {
     startDate: payload.startDate,
     endDate: payload.endDate || undefined,
     roleId: payload.roleId || undefined,
-    remark: payload.remark?.trim() || undefined
+    remark: payload.remark?.trim() || undefined,
+    recordId: payload.recordId || undefined
   }
 }
 
@@ -761,13 +804,33 @@ function updateLongUseItem(id: string, payload: LongUsePayload): { ok: boolean; 
   if (!target) return { ok: false, message: '物品不存在' }
   const valid = validateLongUse(payload)
   if (!valid.ok) return valid
-  Object.assign(target, normalizeLongUse(payload))
+  // 抽屉里编辑物品不带 recordId，保留原有的联动关系
+  Object.assign(target, normalizeLongUse({ ...payload, recordId: payload.recordId ?? target.recordId }))
   persist()
   return { ok: true }
 }
 
 function deleteLongUseItem(id: string) {
   longUse.value = longUse.value.filter((i) => i.id !== id)
+  persist()
+}
+
+function normalizeLongUseLink(input?: Partial<LongUseLinkSettings> | null): LongUseLinkSettings {
+  const snap = (v: number) => Math.round(v / LONG_USE_LINK_STEP) * LONG_USE_LINK_STEP
+  // 上限至少比最低值高一档，滑条才拖得动
+  const rawMax = Math.floor(Number(input?.sliderMax) || LONG_USE_LINK_DEFAULT_MAX)
+  const sliderMax = Math.max(LONG_USE_LINK_MIN + LONG_USE_LINK_STEP, snap(rawMax))
+  // 阈值对齐到步进，夹在 [1 砖, 上限] 之间；调低上限时阈值跟着压下来
+  const threshold = Math.floor(Number(input?.threshold) || 0)
+  return {
+    enabled: Boolean(input?.enabled),
+    threshold: Math.min(sliderMax, Math.max(LONG_USE_LINK_MIN, snap(threshold))),
+    sliderMax
+  }
+}
+
+function setLongUseLink(patch: Partial<LongUseLinkSettings>) {
+  longUseLink.value = normalizeLongUseLink({ ...longUseLink.value, ...patch })
   persist()
 }
 
@@ -947,9 +1010,11 @@ function importState(state: StoreState) {
   groupBrands.value = Array.isArray(state.groupBrands) ? state.groupBrands : seedGroupBrandsFromRecords(records.value)
   buffCalc.value = normalizeBuffCalc(state.buffCalc)
   longUse.value = Array.isArray(state.longUse) ? state.longUse : []
+  longUseLink.value = normalizeLongUseLink(state.longUseLink)
   dungeonOrder.value = Array.isArray(state.dungeonOrder) ? state.dungeonOrder.slice() : []
   seededDungeons.value = Array.isArray(state.seededDungeons) ? state.seededDungeons.slice() : []
   seedDefaultDungeons()
+  defaultDungeonName.value = state.defaultDungeonName
   dedupeSpecialDropsAndRemapRecords()
   reconcileDungeonOrder()
   persist()
@@ -1129,6 +1194,8 @@ export function useTracker() {
     addLongUseItem,
     updateLongUseItem,
     deleteLongUseItem,
+    longUseLink,
+    setLongUseLink,
     buffCalc,
     setBuffCalcUnit,
     setBuffCalcShowPrev,
@@ -1151,6 +1218,10 @@ export function useTracker() {
     toggleDungeonFollow,
     toggleDungeonHidden,
     hideDungeon,
+    defaultDungeonName,
+    resolveDefaultDungeonName,
+    resolveDefaultDungeonId,
+    setDefaultDungeon,
     unhideDungeon,
     setDungeonOrder,
     orderedDungeonGroups,

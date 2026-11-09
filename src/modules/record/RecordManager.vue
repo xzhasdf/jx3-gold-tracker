@@ -183,6 +183,13 @@
       <n-form-item label="支出">
         <n-input-number v-model:value="addForm.expenseGold" :min="0" :show-button="false" :style="fieldStyle" />
       </n-form-item>
+      <!-- label 留一个空格占位：不显示文字，但内容仍与上面的输入框左对齐 -->
+      <n-form-item v-if="showAddLongUseLink" label=" ">
+        <LongUseLinkFields
+          v-model:checked="addForm.linkLongUse"
+          v-model:items="addForm.longUseItems"
+        />
+      </n-form-item>
       <template v-if="!isAddFixedDungeon">
         <n-form-item label="团牌" class="compact-group-item">
           <n-space vertical :size="6">
@@ -272,6 +279,12 @@
       </n-form-item>
       <n-form-item label="支出">
         <n-input-number v-model:value="editForm.expenseGold" :min="0" :show-button="false" :style="fieldStyle" />
+      </n-form-item>
+      <n-form-item v-if="showEditLongUseLink" label=" ">
+        <LongUseLinkFields
+          v-model:checked="editForm.linkLongUse"
+          v-model:items="editForm.longUseItems"
+        />
       </n-form-item>
       <template v-if="!isEditFixedDungeon">
         <n-form-item label="团牌" class="compact-group-item">
@@ -377,6 +390,9 @@ import SchoolBadge from '../shared/SchoolBadge.vue'
 import ExpandableTagRow from '../shared/ExpandableTagRow.vue'
 import SpecialDropPicker from '../shared/SpecialDropPicker.vue'
 import type { OcrFillResult } from './ocr'
+import type { LongUseItem } from '../../types'
+import LongUseLinkFields from '../shared/LongUseLinkFields.vue'
+import { newLinkDraftItem, type LinkDraftItem } from '../shared/longUseLink'
 
 const tracker = useTracker()
 const { ocrReady } = useOcrState()
@@ -446,7 +462,9 @@ const addForm = reactive({
   blacklisted: false,
   blackPerson: '',
   hasSpecialDrop: false,
-  specialDropIds: [] as string[]
+  specialDropIds: [] as string[],
+  linkLongUse: true,
+  longUseItems: [newLinkDraftItem()] as LinkDraftItem[]
 })
 
 const editForm = reactive({
@@ -461,7 +479,9 @@ const editForm = reactive({
   blacklisted: false,
   blackPerson: '',
   hasSpecialDrop: false,
-  specialDropIds: [] as string[]
+  specialDropIds: [] as string[],
+  linkLongUse: false,
+  longUseItems: [newLinkDraftItem()] as LinkDraftItem[]
 })
 
 function getMatchedSpecialDrops(dungeonId: string | null) {
@@ -522,6 +542,25 @@ const showRoleFixButton = computed(
   () => Boolean(addForm.roleId) && addForm.roleId === tempRoleCandidateId.value && !roleMap.value.has(String(addForm.roleId))
 )
 const tempProxyRatio = ref<number | null>(null)
+// 联动入账：开关打开、支出达到阈值才带出；代清角色支出不入账，也不联动
+const showAddLongUseLink = computed(() => {
+  const link = tracker.longUseLink.value
+  if (!link.enabled || selectedAddRole.value?.isProxyClear) return false
+  return toGold(0, addForm.expenseGold) >= link.threshold
+})
+
+// 编辑中的收支已联动过的久物物品；有的话保存时更新它，而不是再建一件
+const editLinkedLongUse = computed(() =>
+  editingId.value ? tracker.longUse.value.filter((i) => i.recordId === editingId.value) : []
+)
+
+// 编辑时：已联动过的始终显示（才能改名或取消）；没联动过的同新增，开关打开且支出达到阈值才带出
+const showEditLongUseLink = computed(() => {
+  if (editLinkedLongUse.value.length > 0) return true
+  const link = tracker.longUseLink.value
+  return link.enabled && toGold(0, editForm.expenseGold) >= link.threshold
+})
+
 const selectedAddRole = computed(() => {
   const roleId = addForm.roleId ? String(addForm.roleId) : ''
   if (!roleId) return undefined
@@ -893,20 +932,7 @@ function openAddModal() {
   }
   addForm.date = Date.now()
   addForm.roleId = roleOptionsForAddRecord.value[0]?.value ?? tracker.roles.value[0].id
-  const visibleDungeons = tracker.dungeons.value.filter((d) => !d.hidden)
-  const priorities: { players: '10人' | '25人'; difficulty: '普通' | '英雄' | '挑战' }[] = [
-    { players: '10人', difficulty: '普通' },
-    { players: '25人', difficulty: '普通' },
-    { players: '25人', difficulty: '英雄' },
-    { players: '25人', difficulty: '挑战' }
-  ]
-  let defaultDungeon
-  for (const p of priorities) {
-    defaultDungeon = visibleDungeons.find((d) => d.players === p.players && d.difficulty === p.difficulty)
-    if (defaultDungeon) break
-  }
-  defaultDungeon = defaultDungeon ?? visibleDungeons[0] ?? tracker.dungeons.value[0]
-  addForm.dungeonId = defaultDungeon.id
+  addForm.dungeonId = tracker.resolveDefaultDungeonId() ?? null
   addForm.incomeGold = 0
   addForm.expenseGold = 0
   addForm.groupBrand = ''
@@ -919,6 +945,8 @@ function openAddModal() {
   addForm.blackPerson = ''
   addForm.hasSpecialDrop = false
   addForm.specialDropIds = []
+  addForm.linkLongUse = true
+  addForm.longUseItems = [newLinkDraftItem()]
   showAdd.value = true
 }
 
@@ -979,7 +1007,16 @@ function createRecord() {
   const dropIds = addForm.hasSpecialDrop
     ? addForm.specialDropIds.filter((id) => matchedAddDrops.value.some((d) => d.id === id))
     : []
-  tracker.addRecord({
+  // 先校验久物主义，免得收支已入账、物品却因名称为空被拒，两边对不上
+  const linkLongUse = showAddLongUseLink.value && addForm.linkLongUse
+  if (linkLongUse) {
+    const error = validateLinkItems(addForm.longUseItems, toGold(0, addForm.expenseGold))
+    if (error) {
+      showTip(error)
+      return
+    }
+  }
+  const recordId = tracker.addRecord({
     roleId,
     dungeonId: addForm.dungeonId,
     dateTs: addForm.date,
@@ -992,6 +1029,22 @@ function createRecord() {
     blackPerson: addForm.blackPerson,
     specialDropIds: dropIds
   })
+  if (linkLongUse) {
+    const failed = addForm.longUseItems
+      .map((item) =>
+        tracker.addLongUseItem({
+          name: item.name,
+          type: item.type,
+          price: item.price ?? 0,
+          startDate: toYmd(addForm.date as number),
+          roleId,
+          remark: addForm.remark,
+          recordId
+        })
+      )
+      .find((r) => !r.ok)
+    if (failed) showTip(`收支已保存，但久物主义入账失败：${failed.message ?? '未知错误'}`)
+  }
   closeAddModal()
 }
 
@@ -1070,6 +1123,18 @@ function openEdit(row: (typeof rows.value)[number]) {
   const existingDrops = (Array.isArray(row.specialDropIds) ? row.specialDropIds : []).filter((id) => allDropIds.has(id))
   editForm.specialDropIds = existingDrops.slice()
   editForm.hasSpecialDrop = existingDrops.length > 0
+  const linked = tracker.longUse.value.filter((i) => i.recordId === row.id)
+  // 没联动过的默认不勾：改个备注就顺手多建一件物品，容易和抽屉里手动加的重复
+  editForm.linkLongUse = linked.length > 0
+  editForm.longUseItems = linked.length
+    ? linked.map((i) => ({
+        ...newLinkDraftItem(),
+        id: i.id,
+        name: i.name,
+        type: i.type,
+        price: i.price
+      }))
+    : [newLinkDraftItem()]
   showEdit.value = true
 }
 
@@ -1078,7 +1143,17 @@ function saveEdit() {
   if (editForm.hasSpecialDrop) {
     dropIds = editForm.specialDropIds.filter((id) => matchedEditDrops.value.some((d) => d.id === id))
   }
-  tracker.updateRecord(editingId.value, {
+  const linked = editLinkedLongUse.value
+  const wantLink = showEditLongUseLink.value && editForm.linkLongUse
+  if (wantLink) {
+    const error = validateLinkItems(editForm.longUseItems, toGold(0, editForm.expenseGold))
+    if (error) {
+      showTip(error)
+      return
+    }
+  }
+  const recordId = editingId.value
+  tracker.updateRecord(recordId, {
     date: editForm.date ? toYmd(editForm.date) : undefined,
     roleId: editForm.roleId || undefined,
     dungeonId: editForm.dungeonId || undefined,
@@ -1091,7 +1166,45 @@ function saveEdit() {
     blackPerson: editForm.blackPerson,
     specialDropIds: dropIds
   })
+  syncLinkedLongUse(recordId, linked, wantLink)
   showEdit.value = false
+}
+
+// 保存前先校验，免得收支已入账、物品却被拒，两边对不上
+function validateLinkItems(items: LinkDraftItem[], expense: number): string | null {
+  if (items.length === 0) return '请至少添加一件物品，或取消勾选「久物主义」'
+  if (items.some((i) => !i.name.trim())) return '请填写久物主义的物品名称，或取消勾选「久物主义」'
+  if (items.some((i) => !i.price || i.price <= 0)) return '请填写久物主义的物品价格'
+  const sum = items.reduce((total, i) => total + (i.price ?? 0), 0)
+  if (sum > expense) return '物品价格合计超过了本次支出'
+  return null
+}
+
+// 编辑收支后同步联动的久物物品：表单里有的新建或更新（日期 / 角色跟随收支），
+// 表单里删掉的、或取消勾选时已联动的全部，从久物主义里删除
+function syncLinkedLongUse(recordId: string, linked: LongUseItem[], wantLink: boolean) {
+  const keepIds = new Set(wantLink ? editForm.longUseItems.map((i) => i.id).filter(Boolean) : [])
+  linked.filter((i) => !keepIds.has(i.id)).forEach((i) => tracker.deleteLongUseItem(i.id))
+  if (!wantLink) return
+
+  const failed = editForm.longUseItems
+    .map((item) => {
+      const existing = linked.find((i) => i.id === item.id)
+      const payload = {
+        name: item.name,
+        type: item.type,
+        price: item.price ?? 0,
+        startDate: editForm.date ? toYmd(editForm.date) : (existing?.startDate ?? toYmd(Date.now())),
+        roleId: editForm.roleId || undefined,
+        recordId
+      }
+      // 已联动的保留用户在抽屉里填的停用日期、备注
+      return existing
+        ? tracker.updateLongUseItem(existing.id, { ...payload, endDate: existing.endDate, remark: existing.remark })
+        : tracker.addLongUseItem({ ...payload, remark: editForm.remark })
+    })
+    .find((r) => !r.ok)
+  if (failed) showTip(`收支已保存，但久物主义同步失败：${failed.message ?? '未知错误'}`)
 }
 
 function removeRecord(id: string) {
@@ -1230,7 +1343,9 @@ const allColumns = computed<DataTableColumns<(typeof rows.value)[number]>>(() =>
   {
     title: '操作',
     key: 'actions',
-    minWidth: 90,
+    // 两个按钮 + 间距 + 单元格内边距约 125px；Windows 下雅黑更宽，留余量，避免溢出出表格产生空白
+    width: 140,
+    minWidth: 140,
     render: (row) =>
       h('div', { class: 'action-group', style: 'white-space:nowrap;' }, [
         h('button', { class: 'mini-btn', onClick: () => openEdit(row) }, '编辑'),

@@ -17,6 +17,8 @@ function sanitizeState(input: unknown): StoreState {
     groupBrands: Array.isArray(parsed?.groupBrands) ? parsed!.groupBrands : undefined,
     buffCalc: parsed?.buffCalc && typeof parsed.buffCalc === 'object' ? parsed!.buffCalc : undefined,
     longUse: Array.isArray(parsed?.longUse) ? parsed!.longUse : undefined,
+    longUseLink: parsed?.longUseLink && typeof parsed.longUseLink === 'object' ? parsed!.longUseLink : undefined,
+    defaultDungeonName: typeof parsed?.defaultDungeonName === 'string' ? parsed!.defaultDungeonName : undefined,
     seededDungeons: Array.isArray(parsed?.seededDungeons) ? parsed!.seededDungeons : undefined,
     seededSeasons: Array.isArray(parsed?.seededSeasons) ? parsed!.seededSeasons : undefined,
     seededDrops: Array.isArray(parsed?.seededDrops) ? parsed!.seededDrops : undefined
