@@ -20,6 +20,17 @@ body {
   padding: 20px;
 }
 
+/* 页面靠整个网页滚动（.page 只设了 min-height）。naive 的 n-layout 和它的滚动容器默认
+   overflow: hidden / overflow-x: hidden，会各自变成「不滚动的滚动容器」，导致里面的
+   position: sticky（技艺收益的固定头部）失效。clip 一样裁剪溢出，但不会成为滚动容器。
+   选择器比 naive 的 .n-layout 多一级，保证覆盖运行时注入的样式。 */
+.n-layout.page,
+.n-layout.page > .n-layout-scroll-container,
+.n-layout.content,
+.n-layout.content > .n-layout-scroll-container {
+  overflow: clip;
+}
+
 .field-340 {
   width: 340px;
   max-width: 100%;

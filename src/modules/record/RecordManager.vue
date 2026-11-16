@@ -1324,7 +1324,10 @@ const allColumns = computed<DataTableColumns<(typeof rows.value)[number]>>(() =>
               row.blacklisted ? h(NTag, { type: 'error', size: 'small' }, { default: () => '黑名单' }) : null
             ])
           : null,
-        row.leaderId ? h('span', { style: 'white-space:nowrap;' }, row.leaderId) : null
+        // 有团牌但团长被删了（或没填）时显示 --
+        row.leaderId
+          ? h('span', { style: 'white-space:nowrap;' }, row.leaderId)
+          : h('span', { style: 'color:#c0c4cc;' }, '--')
       ])
     }
   },

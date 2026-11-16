@@ -1,0 +1,291 @@
+// 技艺成本收益计算。金额单位一律为铜（1 金 = 100 银 = 10000 铜），与 JX3Box 物价接口一致。
+//
+// 制作 N 次（N 默认 1）：
+//   成本 = Σ 材料（单次数量 × N − 自备数量）× 材料单价        自备是 N 次合计备了多少，不计成本
+//   收益 = Σ 产物 期望数量 × N × 单价 × (1 − 5% 手续费)       期望数量 = 概率 × (最少 + 最多) / 2
+//   单件成本 = 成本 / 全部产物期望件数                         按出货期望摊，而不是按最少件数
+//   补精力食物 = 买的个数 × 交易行单价 + 自制个数 × 自制单价（材料费 / 每次产出个数）
+//   每点精力利润 = (收益 − 成本) / (配方精力 × N)
+//
+// 取价只有三种：NPC 商店有售的材料固定用 NPC 价；其余材料和产物默认交易行，可改成自定义单价。
+import rawData from './craftData.json'
+import { NPC_PRICES } from './npcPrices'
+import type { CraftSettings } from '../../../types'
+
+export interface CraftRecipe {
+  id: string
+  prof: string
+  name: string
+  vigor: number
+  dlc: number
+  /** [物品ID, 数量] */
+  mats: [string, number][]
+  /** [物品ID, 最少, 最多, 概率 0~1] */
+  outs: [string, number, number, number][]
+}
+
+export interface CraftItem {
+  name: string
+  q: number
+  /** 产物效果说明（生成脚本从 JX3Box 解析附魔 / 增益模板得到；梓匠家具没有） */
+  fx?: string
+}
+
+const data = rawData as unknown as { recipes: CraftRecipe[]; items: Record<string, CraftItem>; mids: Record<string, string[]> }
+
+export const RECIPES = data.recipes
+export const ITEMS = data.items
+export const RECIPE_MAP = new Map(RECIPES.map((r) => [r.id, r]))
+/** 各技艺的中间件（锭/布/酱料/药引等）：技艺名 → 物品ID */
+export const MIDS = data.mids
+export const CURRENT_DLC = Math.max(...RECIPES.map((r) => r.dlc))
+export const PROFESSIONS = ['烹饪', '缝纫', '铸造', '医术', '梓匠']
+/** 交易行寄售手续费，游戏内固定 5% */
+export const AUCTION_FEE_PERCENT = 5
+
+/** 补精力的食物：买来吃掉换精力，成本按消耗的精力折算份数（不取整，多出的精力下次还能用） */
+export const VIGOR_FOODS = [
+  { key: 'zhuanshen', id: '5_31013', name: '转神餐', vigor: 20, q: 3 },
+  { key: 'fotiaoqiang', id: '5_31012', name: '佛跳墙', vigor: 38, q: 4 }
+] as const
+export type VigorFood = (typeof VIGOR_FOODS)[number]
+
+// 食物名 / 品质要能被 itemName、qualityColor 查到，配方数据里没有就补上
+for (const f of VIGOR_FOODS) ITEMS[f.id] ??= { name: f.name, q: f.q }
+
+/** 梓匠配方在 JX3Box 里没有资料片标记，全部视为当前版本 */
+export function isCurrentRecipe(r: CraftRecipe): boolean {
+  return r.prof === '梓匠' || r.dlc === CURRENT_DLC
+}
+
+export function itemName(id: string): string {
+  return ITEMS[id]?.name ?? id
+}
+
+export function npcPrice(id: string): number | null {
+  return NPC_PRICES[itemName(id)] ?? null
+}
+
+export function expectedCount(out: CraftRecipe['outs'][number]): number {
+  return (out[3] * (out[1] + out[2])) / 2
+}
+
+export interface PriceContext {
+  settings: CraftSettings
+  auction: Record<string, AuctionPrice | null | undefined>
+}
+
+export type PriceVia = 'npc' | 'auction' | 'manual' | 'craft'
+
+export interface UnitPrice {
+  /** 单价（铜）；null = 拿不到价格 */
+  price: number | null
+  via: PriceVia
+  updatedAt?: number
+}
+
+/**
+ * @param asMaterial NPC 价只用于材料：NPC 价表按物品名匹配，产物可能和 NPC 材料重名
+ *   （梓匠家具「青菜」10_417 vs 烹饪材料「青菜」5_31983），产物一律走交易行 / 自定义
+ */
+export function priceOf(id: string, ctx: PriceContext, asMaterial = true): UnitPrice {
+  const npc = asMaterial ? npcPrice(id) : null
+  if (npc !== null) return { price: npc, via: 'npc' }
+  if (ctx.settings.source[id] === 'manual') return { price: ctx.settings.manual[id] ?? null, via: 'manual' }
+  const a = ctx.auction[id]
+  return a ? { price: a.price, via: 'auction', updatedAt: a.updatedAt } : { price: null, via: 'auction' }
+}
+
+export function craftTimes(recipeId: string, settings: CraftSettings): number {
+  return Math.max(1, Math.floor(settings.times[recipeId] ?? 1))
+}
+
+export interface MaterialLine {
+  id: string
+  name: string
+  /** N 次合计需要 */
+  need: number
+  owned: number
+  buy: number
+  unit: UnitPrice
+  /** buy × 单价；缺价时为 null */
+  subtotal: number | null
+}
+
+export interface OutputLine {
+  id: string
+  name: string
+  /** 单次制作的期望件数（用户改过就用改过的） */
+  perCraft: number
+  /** 是否是用户改过的期望值 */
+  custom: boolean
+  /** N 次合计期望件数 */
+  expected: number
+  unit: UnitPrice
+  /** 扣手续费后的期望收益；缺价时为 null */
+  value: number | null
+}
+
+export interface VigorFoodPart {
+  /** 个数（整数） */
+  count: number
+  /** 每个的单价；自制 = 一次制作的材料费 / 一次期望产出个数 */
+  unit: UnitPrice
+  cost: number | null
+}
+
+export interface VigorFoodLine {
+  food: VigorFood
+  /** 买的个数是否自动折算（用户没填过买 / 自制个数） */
+  auto: boolean
+  /** 交易行买（或自定义单价）的部分 */
+  buy: VigorFoodPart
+  /** 自己做的部分；没填自制个数时为 null */
+  self: (VigorFoodPart & { recipe: CraftRecipe; perCraft: number }) | null
+  /** 买 + 自制合计；任一部分缺价时 null */
+  cost: number | null
+}
+
+/** 主产物 → 配方（目前只用来找补精力食物的配方） */
+const PRODUCER = new Map<string, CraftRecipe>()
+for (const r of RECIPES) if (r.outs.length && !PRODUCER.has(r.outs[0][0])) PRODUCER.set(r.outs[0][0], r)
+
+/** 自制食物每个的成本 = 一次制作的材料费 / 一次期望产出个数（自制的可能是以前做好的，不再扣本次精力） */
+export function selfMadeUnit(food: VigorFood, ctx: PriceContext): { recipe: CraftRecipe; perCraft: number; price: number | null } | null {
+  const fr = PRODUCER.get(food.id)
+  if (!fr) return null
+  const prices = fr.mats.map(([id, n]) => {
+    const p = priceOf(id, ctx).price
+    return p === null ? null : p * n
+  })
+  const perCraft = expectedCount(fr.outs[0])
+  const matCost = prices.includes(null) ? null : (prices as number[]).reduce((s, p) => s + p, 0)
+  return { recipe: fr, perCraft, price: matCost === null || perCraft <= 0 ? null : matCost / perCraft }
+}
+
+/**
+ * 补精力食物 = 买的 + 自制的，分开计价。
+ * - 两个个数都没填：买的按 need / 每个恢复量 向上取整，自制 0
+ * - 只填了自制：买的自动补足剩下的精力
+ * - 填了买的：按填的整数算
+ */
+function vigorFoodLine(food: VigorFood, need: number, recipeId: string, ctx: PriceContext): VigorFoodLine {
+  const buyCustom = ctx.settings.foodCount[recipeId]
+  const selfCount = ctx.settings.foodSelf[recipeId] ?? 0
+  const auto = buyCustom === undefined && selfCount === 0
+  // 食物只能整个吃，自动折算时向上取整（1e-9 防浮点把 3.0 算成 3.0000001 再进位）
+  const buyCount = buyCustom ?? Math.max(0, Math.ceil(need / food.vigor - selfCount - 1e-9))
+
+  const buyUnit = priceOf(food.id, ctx)
+  const buy = { count: buyCount, unit: buyUnit, cost: buyCount === 0 ? 0 : buyUnit.price === null ? null : buyUnit.price * buyCount }
+
+  let self: VigorFoodLine['self'] = null
+  if (selfCount > 0) {
+    const made = selfMadeUnit(food, ctx)
+    const price = made?.price ?? null
+    self = {
+      count: selfCount,
+      unit: { price, via: 'craft' },
+      cost: price === null ? null : price * selfCount,
+      recipe: made?.recipe as CraftRecipe,
+      perCraft: made?.perCraft ?? 0
+    }
+  }
+  const cost = buy.cost === null || (self && self.cost === null) ? null : buy.cost + (self?.cost ?? 0)
+  return { food, auto, buy, self, cost }
+}
+
+export interface RecipeResult {
+  recipe: CraftRecipe
+  /** 选了补精力食物时的成本行 */
+  vigorFood: VigorFoodLine | null
+  /** 制作次数 */
+  times: number
+  /** 全部产物的期望件数合计（N 次） */
+  expectedItems: number
+  /** 单件成本 = 成本 / 期望件数 */
+  unitCost: number | null
+  lines: MaterialLine[]
+  outputs: OutputLine[]
+  cost: number | null
+  revenue: number | null
+  profit: number | null
+  vigor: number
+  perVigor: number | null
+  /** 缺价的材料名 */
+  missingMats: string[]
+  /** 次要产物（小概率出的精品等）没有报价，按 0 计 */
+  partialOutputs: boolean
+}
+
+export function evaluateRecipe(r: CraftRecipe, ctx: PriceContext): RecipeResult {
+  const times = craftTimes(r.id, ctx.settings)
+  const owned = ctx.settings.owned[r.id] ?? {}
+  const lines: MaterialLine[] = r.mats.map(([id, per]) => {
+    const need = per * times
+    const own = Math.min(need, Math.max(0, owned[id] ?? 0))
+    const buy = need - own
+    const unit = priceOf(id, ctx)
+    // 全部自备时不需要价格
+    const subtotal = buy === 0 ? 0 : unit.price === null ? null : unit.price * buy
+    return { id, name: itemName(id), need, owned: own, buy, unit, subtotal }
+  })
+  const vigor = r.vigor * times
+  const food = VIGOR_FOODS.find((f) => f.key === ctx.settings.vigorFood[r.id])
+  const vigorFood = food ? vigorFoodLine(food, vigor, r.id, ctx) : null
+  const missing: string[] = lines.filter((l) => l.subtotal === null).map((l) => l.name)
+  if (vigorFood && vigorFood.cost === null) missing.push(vigorFood.food.name)
+  const cost = missing.length
+    ? null
+    : lines.reduce((s, l) => s + (l.subtotal ?? 0), 0) + (vigorFood?.cost ?? 0)
+
+  const keep = 1 - AUCTION_FEE_PERCENT / 100
+  const yields = ctx.settings.yield[r.id] ?? {}
+  const outputs: OutputLine[] = r.outs.map((o) => {
+    const unit = priceOf(o[0], ctx, false)
+    const custom = yields[o[0]] !== undefined
+    const perCraft = custom ? yields[o[0]] : expectedCount(o)
+    const expected = perCraft * times
+    return { id: o[0], name: itemName(o[0]), perCraft, custom, expected, unit, value: unit.price === null ? null : unit.price * expected * keep }
+  })
+  const primaryMissing = outputs.length === 0 || outputs[0].value === null
+  const revenue = primaryMissing ? null : outputs.reduce((s, o) => s + (o.value ?? 0), 0)
+  const profit = revenue === null || cost === null ? null : revenue - cost
+  const expectedItems = outputs.reduce((s, o) => s + o.expected, 0)
+
+  return {
+    recipe: r,
+    vigorFood,
+    times,
+    expectedItems,
+    unitCost: cost === null || expectedItems <= 0 ? null : cost / expectedItems,
+    lines,
+    outputs,
+    cost,
+    revenue,
+    profit,
+    vigor,
+    perVigor: profit === null || vigor <= 0 ? null : profit / vigor,
+    missingMats: missing,
+    partialOutputs: !primaryMissing && outputs.some((o) => o.value === null)
+  }
+}
+
+/** 这些配方需要查交易行价格的物品：材料（NPC 有售的除外）+ 全部产物 */
+export function collectPriceIds(recipeIds: string[]): string[] {
+  const ids = new Set<string>()
+  const products = new Set<string>()
+  for (const rid of recipeIds) {
+    const r = RECIPE_MAP.get(rid)
+    if (!r) continue
+    r.mats.forEach(([id]) => ids.add(id))
+    r.outs.forEach(([id]) => products.add(id))
+  }
+  // 补精力食物随时可能被选上，一并查价（含自制用的材料）
+  VIGOR_FOODS.forEach((f) => {
+    ids.add(f.id)
+    PRODUCER.get(f.id)?.mats.forEach(([id]) => ids.add(id))
+  })
+  // NPC 有售的材料不用查；产物不走 NPC 价，全部要查
+  return [...[...ids].filter((id) => npcPrice(id) === null), ...products]
+}

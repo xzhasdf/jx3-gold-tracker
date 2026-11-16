@@ -6,7 +6,7 @@ import { EQUIP_TYPES, LONG_USE_LINK_DEFAULT_MAX, LONG_USE_LINK_MIN, LONG_USE_LIN
 import { loadState, saveState } from '../services/storage'
 import { getCurrentMonthRange, getCurrentWeekRange, toYmd, WEEK_RESET_HOUR } from '../utils/date'
 import { normalizePersonName } from '../utils/leader'
-import type { BuffCalcState, Dungeon, GroupBrand, LongUseItem, LongUseLinkSettings, RecordItem, Role, Season, SpecialDrop, StoreState, WineBuryItem } from '../types'
+import type { AuctionWatchItem, BuffCalcState, CraftSettings, Dungeon, GroupBrand, LongUseItem, LongUseLinkSettings, RecordItem, Role, Season, SpecialDrop, StoreState, WineBuryItem } from '../types'
 
 function makeId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -25,6 +25,8 @@ const groupBrands = ref<GroupBrand[]>([])
 const buffCalc = ref<BuffCalcState>(normalizeBuffCalc(undefined))
 const longUse = ref<LongUseItem[]>([])
 const longUseLink = ref<LongUseLinkSettings>(normalizeLongUseLink(undefined))
+const craft = ref<CraftSettings>(normalizeCraft(undefined))
+const auctionWatch = ref<AuctionWatchItem[]>([])
 const seededDungeons = ref<string[]>([])
 const seededSeasons = ref<string[]>([])
 const seededDrops = ref<string[]>([])
@@ -209,6 +211,8 @@ function init() {
   buffCalc.value = normalizeBuffCalc(state.buffCalc)
   longUse.value = Array.isArray(state.longUse) ? state.longUse : []
   longUseLink.value = normalizeLongUseLink(state.longUseLink)
+  craft.value = normalizeCraft(state.craft)
+  auctionWatch.value = normalizeAuctionWatch(state.auctionWatch)
 
   // 清理已从 DEFAULT_SPECIAL_DROPS 移除的旧默认条目
   const validDefaultNames = new Set(DEFAULT_SPECIAL_DROPS.map((d) => d.itemName))
@@ -345,7 +349,7 @@ function seedDefaultDungeons(): boolean {
 
 // 完整的持久化快照：写盘与导出共用，新增字段只需在这里加一处
 function buildState(): StoreState {
-  return { roles: roles.value, dungeons: dungeons.value, records: records.value, columnConfig: columnConfig.value, wineBury: wineBury.value, dungeonOrder: dungeonOrder.value, specialDrops: specialDrops.value, seasons: seasons.value, groupBrands: groupBrands.value, buffCalc: buffCalc.value, longUse: longUse.value, longUseLink: longUseLink.value, defaultDungeonName: defaultDungeonName.value, seededDungeons: seededDungeons.value, seededSeasons: seededSeasons.value, seededDrops: seededDrops.value }
+  return { roles: roles.value, dungeons: dungeons.value, records: records.value, columnConfig: columnConfig.value, wineBury: wineBury.value, dungeonOrder: dungeonOrder.value, specialDrops: specialDrops.value, seasons: seasons.value, groupBrands: groupBrands.value, buffCalc: buffCalc.value, longUse: longUse.value, longUseLink: longUseLink.value, craft: craft.value, auctionWatch: auctionWatch.value, defaultDungeonName: defaultDungeonName.value, seededDungeons: seededDungeons.value, seededSeasons: seededSeasons.value, seededDrops: seededDrops.value }
 }
 
 function persist() {
@@ -834,6 +838,64 @@ function setLongUseLink(patch: Partial<LongUseLinkSettings>) {
   persist()
 }
 
+function plainRecord<T>(input: unknown, pick: (v: unknown) => T | undefined): Record<string, T> {
+  const out: Record<string, T> = {}
+  if (!input || typeof input !== 'object') return out
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    const picked = pick(v)
+    if (picked !== undefined) out[k] = picked
+  }
+  return out
+}
+
+// 模块顶层初始化 craft ref 时就会调用，函数内不要引用文件后部声明的 const（会撞 TDZ）
+function normalizeCraft(input?: Partial<CraftSettings> | null): CraftSettings {
+  // 先取整再判正，避免 0.5 这类脏数据被存成 0
+  const count = (v: unknown) => {
+    const n = Math.floor(Number(v))
+    return Number.isFinite(n) && n > 0 ? n : undefined
+  }
+  return {
+    owned: plainRecord(input?.owned, (v) => {
+      const inner = plainRecord(v, count)
+      return Object.keys(inner).length ? inner : undefined
+    }),
+    source: plainRecord(input?.source, (v) => (v === 'manual' ? (v as CraftSettings['source'][string]) : undefined)),
+    manual: plainRecord(input?.manual, (v) => (Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : undefined)),
+    // 与 craftCalc 的 VIGOR_FOODS 对应；这里不能 import 它（模块顶层初始化，见上方 TDZ 说明）
+    vigorFood: plainRecord(input?.vigorFood, (v) => (v === 'zhuanshen' || v === 'fotiaoqiang' ? v : undefined)),
+    foodCount: plainRecord(input?.foodCount, (v) => (Number.isFinite(Number(v)) && Number(v) >= 0 ? Math.floor(Number(v)) : undefined)),
+    foodSelf: plainRecord(input?.foodSelf, (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.floor(Number(v)) : undefined)),
+    yield: plainRecord(input?.yield, (v) => {
+      const inner = plainRecord(v, (n) => (Number.isFinite(Number(n)) && Number(n) >= 0 ? Number(n) : undefined))
+      return Object.keys(inner).length ? inner : undefined
+    }),
+    times: plainRecord(input?.times, (v) => {
+      const n = count(v)
+      return n !== undefined && n > 1 ? n : undefined
+    })
+  }
+}
+
+function normalizeAuctionWatch(input: unknown): AuctionWatchItem[] {
+  if (!Array.isArray(input)) return []
+  const seen = new Set<string>()
+  return input
+    .filter((x): x is AuctionWatchItem => Boolean(x) && typeof x.id === 'string' && typeof x.name === 'string')
+    .filter((x) => !seen.has(x.id) && seen.add(x.id))
+    .map((x) => ({ id: x.id, name: x.name, quality: Number(x.quality) || 1 }))
+}
+
+function setAuctionWatch(list: AuctionWatchItem[]) {
+  auctionWatch.value = normalizeAuctionWatch(list)
+  persist()
+}
+
+function setCraft(patch: Partial<CraftSettings>) {
+  craft.value = normalizeCraft({ ...craft.value, ...patch })
+  persist()
+}
+
 function setColumnConfig(keys: string[]) {
   columnConfig.value = keys
   persist()
@@ -979,6 +1041,28 @@ const frequentGroupBrands = computed(() => {
     .map(([brand]) => brand)
 })
 
+function countBrandLeaderRecords(brand: string, leader: string): number {
+  const b = brand.trim()
+  const l = normalizePersonName(leader)
+  return records.value.filter((r) => r.groupBrand?.trim() === b && normalizePersonName(r.leaderId) === l).length
+}
+
+/** 从团牌里删掉一个历史团长：清空该团牌下所有记着这个团长的记录的团长字段（记录本身保留），返回改动条数 */
+function removeBrandLeader(brand: string, leader: string): number {
+  const b = brand.trim()
+  const l = normalizePersonName(leader)
+  if (!b || !l) return 0
+  let changed = 0
+  records.value.forEach((r) => {
+    if (r.groupBrand?.trim() === b && normalizePersonName(r.leaderId) === l) {
+      r.leaderId = undefined
+      changed++
+    }
+  })
+  if (changed) persist()
+  return changed
+}
+
 function getLeadersForBrand(brand: string): string[] {
   const trimmed = brand.trim()
   if (!trimmed) return []
@@ -1011,6 +1095,8 @@ function importState(state: StoreState) {
   buffCalc.value = normalizeBuffCalc(state.buffCalc)
   longUse.value = Array.isArray(state.longUse) ? state.longUse : []
   longUseLink.value = normalizeLongUseLink(state.longUseLink)
+  craft.value = normalizeCraft(state.craft)
+  auctionWatch.value = normalizeAuctionWatch(state.auctionWatch)
   dungeonOrder.value = Array.isArray(state.dungeonOrder) ? state.dungeonOrder.slice() : []
   seededDungeons.value = Array.isArray(state.seededDungeons) ? state.seededDungeons.slice() : []
   seedDefaultDungeons()
@@ -1186,6 +1272,8 @@ export function useTracker() {
     sortedSeasons,
     frequentGroupBrands,
     getLeadersForBrand,
+    countBrandLeaderRecords,
+    removeBrandLeader,
     groupBrands,
     addGroupBrand,
     setGroupBrandBlacklisted,
@@ -1196,6 +1284,10 @@ export function useTracker() {
     deleteLongUseItem,
     longUseLink,
     setLongUseLink,
+    craft,
+    setCraft,
+    auctionWatch,
+    setAuctionWatch,
     buffCalc,
     setBuffCalcUnit,
     setBuffCalcShowPrev,

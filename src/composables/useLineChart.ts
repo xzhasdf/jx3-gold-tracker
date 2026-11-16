@@ -1,6 +1,6 @@
 // 折线图的轻量封装：按需引入 ECharts（只注册折线图 + 网格 / 提示框 / 图例 + Canvas 渲染器），
 // 比 `import * as echarts from 'echarts'` 小很多；并把尺寸变化合并到下一帧重绘，避免切换标签页动画期间反复 resize。
-import { onMounted, onUnmounted, watch, type Ref } from 'vue'
+import { onUnmounted, watch, type Ref } from 'vue'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
@@ -31,23 +31,34 @@ export function useLineChart(elRef: Ref<HTMLElement | null>, option: Ref<Record<
     })
   }
 
-  onMounted(() => {
-    const el = elRef.value
-    if (!el) return
-    chart = echarts.init(el)
-    chart.setOption(option.value)
-    ro = new ResizeObserver(scheduleResize)
-    ro.observe(el)
-  })
+  function dispose() {
+    if (frame) cancelAnimationFrame(frame)
+    frame = 0
+    ro?.disconnect()
+    ro = null
+    chart?.dispose()
+    chart = null
+  }
+
+  // 跟着容器元素走，而不是只在 onMounted 初始化一次：
+  // 容器在 v-if 里时（比如列表为空时不渲染），挂载时拿不到元素，等它出现再初始化；
+  // 元素被替换或移除时释放旧实例。
+  watch(
+    elRef,
+    (el) => {
+      dispose()
+      if (!el) return
+      chart = echarts.init(el)
+      chart.setOption(option.value)
+      ro = new ResizeObserver(scheduleResize)
+      ro.observe(el)
+    },
+    { flush: 'post', immediate: true }
+  )
 
   watch(option, (opt) => {
     chart?.setOption(opt, true)
   })
 
-  onUnmounted(() => {
-    if (frame) cancelAnimationFrame(frame)
-    ro?.disconnect()
-    chart?.dispose()
-    chart = null
-  })
+  onUnmounted(dispose)
 }

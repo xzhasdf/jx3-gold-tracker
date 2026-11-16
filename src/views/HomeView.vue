@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.3.1</span>
+          <span class="header-version">v1.3.2</span>
         </div>
         <div class="header-actions">
           <button
@@ -172,6 +172,19 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.3.2',
+    items: [
+      '小工具新增「技艺收益」：烹饪、缝纫、铸造、医术、梓匠分页签，列出当前版本全部配方，按交易行实时价算成本、收益、利润、单件成本和每点精力利润，可按任意列排序',
+      '技艺收益：NPC 商店有售的材料固定按 NPC 价，其余材料和产物默认交易行价，可改为自定义单价；交易行价格来自 JX3Box 玩家上传，显示更新时间，超过 6 小时标灰',
+      '技艺收益：每个配方可设制作次数、自备材料数量（可只备一部分）和产物单次期望数量，自备部分不计成本；各配方的设置自动保存',
+      '技艺收益：可选用转神餐或佛跳墙补精力并计入成本，分「买」和「自制」两部分计价，个数默认按所需精力向上取整，可手动调整',
+      '技艺收益：页签顶部显示各技艺中间件（锭、布、酱料、药引、木板等）的实时价格；配方下显示产物效果；「·精」产物用橙色标出；滚动时页签、筛选和表头固定在顶部',
+      '小工具新增「交易行物价」：按名字搜索物品，查看最低单价、在售数量和每日最低价走势，查过的物品保存在常查列表',
+      '团牌管理可删除历史团长（团牌只剩一个团长时不可删），对应收支记录的团长显示为「--」',
+      '修复统计图在容器后出现时不显示的问题',
+    ]
+  },
   {
     version: 'v1.3.1',
     items: [
@@ -531,6 +544,11 @@ async function handleSettingSelect(key: string | number) {
 </script>
 
 <style scoped>
+/* naive 带动画的 Tab 容器默认 overflow: hidden，会让页面里的 position: sticky（技艺收益的固定头部）失效。
+   clip 一样裁剪切换动画，但不会成为滚动容器 */
+.content :deep(.n-tabs-pane-wrapper) {
+  overflow: clip;
+}
 .header-row {
   display: flex;
   justify-content: space-between;

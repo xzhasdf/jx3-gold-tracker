@@ -113,6 +113,35 @@ export interface Season {
   endTs: number | null
 }
 
+/** 取价方式：默认交易行，可改自定义单价（NPC 商店有售的材料固定用 NPC 价，不可选） */
+export type CraftPriceSource = 'auction' | 'manual'
+
+export interface CraftSettings {
+  /** 每个配方里各材料的自备数量（制作次数合计）：recipeId → itemId → 数量；自备部分不计成本 */
+  owned: Record<string, Record<string, number>>
+  /** 物品取价方式（全局，跨配方共用）：itemId → 方式；只存 manual，缺省即交易行 */
+  source: Record<string, CraftPriceSource>
+  /** 自定义单价，单位：铜 */
+  manual: Record<string, number>
+  /** 每个配方的制作次数，缺省 1；自备数量是这么多次的合计 */
+  times: Record<string, number>
+  /** 每个配方用哪种食物补精力（成本计入）：recipeId → 食物 key；缺省不补 */
+  vigorFood: Record<string, string>
+  /** 手动指定买几个补精力食物（比如只差一点精力时）：recipeId → 个数；缺省按需要的精力折算 */
+  foodCount: Record<string, number>
+  /** 用几个自制的补精力食物（按材料费计价，不扣本次精力）：recipeId → 个数；缺省 0 */
+  foodSelf: Record<string, number>
+  /** 用户改过的单次期望产出：recipeId → 产物itemId → 件数；缺省按配方的概率 × 数量区间算 */
+  yield: Record<string, Record<string, number>>
+}
+
+/** 交易行物价页的常查物品 */
+export interface AuctionWatchItem {
+  id: string
+  name: string
+  quality: number
+}
+
 export interface StoreState {
   roles: Role[]
   dungeons: Dungeon[]
@@ -134,4 +163,6 @@ export interface StoreState {
   seededSeasons?: string[]
   /** 已补齐过的内置副本掉落（`副本名|物品名`）：每项只补一次，之后用户删掉的不再补回 */
   seededDrops?: string[]
+  craft?: CraftSettings
+  auctionWatch?: AuctionWatchItem[]
 }

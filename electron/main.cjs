@@ -344,6 +344,139 @@ async function fetchGoldPrice(server) {
   }
 }
 
+// ─── JX3Box 交易行物价 ────────────────────────────────────────────────────────
+// 数据来自玩家插件上传，不是官方接口；热门物品几分钟一更，冷门物品可能很久没人传。
+// 用 POST /api/auction/ 的小时聚合（物品页「价格走势」同款）：每条是该小时的最低单价 + 在售数量。
+// 不用 GET /api/item-price/<id>/detail：它只给按价格倒序的前 15 条挂单，真正的最低价常被截掉。
+// 价格单位：铜（1 金 = 100 银 = 10000 铜）。
+
+const JX3BOX_AUCTION_API = 'https://next2.jx3box.com/api/auction/'
+const AUCTION_TIMEOUT = 10000
+const AUCTION_CACHE_TTL = 5 * 60 * 1000
+const AUCTION_CONCURRENCY = 6
+const auctionCache = new Map() // `${server}|${itemId}` → { at, value }
+
+function postJson(url, payload) {
+  return new Promise((resolve, reject) => {
+    const request = net.request({ method: 'POST', url })
+    const timer = setTimeout(() => {
+      try { request.abort() } catch { /* ignore */ }
+      reject(new Error('请求超时'))
+    }, AUCTION_TIMEOUT)
+    request.setHeader('Content-Type', 'application/json')
+    request.on('response', (response) => {
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        clearTimeout(timer)
+        reject(new Error(`接口返回 ${response.statusCode}`))
+        return
+      }
+      let body = ''
+      response.on('data', (chunk) => { body += chunk.toString('utf8') })
+      response.on('end', () => {
+        clearTimeout(timer)
+        try { resolve(JSON.parse(body)) } catch { reject(new Error('返回内容解析失败')) }
+      })
+    })
+    request.on('error', (error) => {
+      clearTimeout(timer)
+      reject(error)
+    })
+    request.write(JSON.stringify(payload))
+    request.end()
+  })
+}
+
+async function fetchAuctionPrice(server, itemId) {
+  const key = `${server}|${itemId}`
+  const cached = auctionCache.get(key)
+  if (cached && Date.now() - cached.at < AUCTION_CACHE_TTL) return cached.value
+  const rows = await postJson(JX3BOX_AUCTION_API, { item_id: itemId, server, aggregate_type: 'hourly' })
+  // 不是数组说明接口出错了：抛出去让调用方记进 failed（可重试），不能当「无报价」缓存
+  if (!Array.isArray(rows)) throw new Error('返回格式异常')
+  const last = rows.length ? rows[rows.length - 1] : null
+  // 没有记录也缓存，避免冷门物品每次打开都重查
+  const value = last && last.price > 0
+    ? { price: Number(last.price), count: Number(last.sample) || 0, updatedAt: Number(last.timestamp) * 1000 }
+    : null
+  auctionCache.set(key, { at: Date.now(), value })
+  return value
+}
+
+function getJson(url) {
+  return new Promise((resolve, reject) => {
+    const request = net.request(url)
+    const timer = setTimeout(() => {
+      try { request.abort() } catch { /* ignore */ }
+      reject(new Error('请求超时'))
+    }, AUCTION_TIMEOUT)
+    request.on('response', (response) => {
+      let body = ''
+      response.on('data', (chunk) => { body += chunk.toString('utf8') })
+      response.on('end', () => {
+        clearTimeout(timer)
+        try { resolve(JSON.parse(body)) } catch { reject(new Error('返回内容解析失败')) }
+      })
+    })
+    request.on('error', (error) => {
+      clearTimeout(timer)
+      reject(error)
+    })
+    request.end()
+  })
+}
+
+// 按名字搜物品：JX3Box node 接口 item_merged/name/<关键字>。
+// BindType 3 = 拾取绑定、不能上交易行，直接过滤；名字完全相同的排最前，其次按名字长度（越短越接近）。
+async function searchAuctionItems(keyword) {
+  const kw = String(keyword || '').trim()
+  if (!kw) return []
+  const data = await getJson(`https://node.jx3box.com/item_merged/name/${encodeURIComponent(kw)}?client=std&per=50`)
+  const list = Array.isArray(data && data.list) ? data.list : []
+  return list
+    .filter((x) => x && x.id && x.Name && x.BindType !== 3)
+    .map((x) => ({ id: String(x.id), name: String(x.Name), quality: Number(x.Quality) || 1, iconId: Number(x.IconID) || 0 }))
+    .sort((a, b) => (b.name === kw) - (a.name === kw) || a.name.length - b.name.length)
+    .slice(0, 30)
+}
+
+// 价格走势：同一个 /api/auction/ 接口的按天聚合，每天一条最低价
+const trendCache = new Map() // `${server}|${itemId}` → { at, value }
+const TREND_CACHE_TTL = 30 * 60 * 1000
+
+async function fetchAuctionTrend(itemId, server) {
+  const target = server || readGoldServer().serverName
+  const key = `${target}|${itemId}`
+  const cached = trendCache.get(key)
+  if (cached && Date.now() - cached.at < TREND_CACHE_TTL) return cached.value
+  const rows = await postJson(JX3BOX_AUCTION_API, { item_id: itemId, server: target, aggregate_type: 'daily' })
+  const value = (Array.isArray(rows) ? rows : [])
+    .filter((r) => r && r.price > 0)
+    .map((r) => ({ price: Number(r.price), count: Number(r.sample) || 0, ts: Number(r.timestamp) * 1000 }))
+  trendCache.set(key, { at: Date.now(), value })
+  return value
+}
+
+async function fetchAuctionPrices(itemIds, server, force) {
+  const target = server || readGoldServer().serverName
+  const ids = [...new Set((Array.isArray(itemIds) ? itemIds : []).filter((x) => typeof x === 'string' && x))]
+  if (force) ids.forEach((id) => auctionCache.delete(`${target}|${id}`))
+  const prices = {}
+  const failed = []
+  let cursor = 0
+  async function worker() {
+    while (cursor < ids.length) {
+      const id = ids[cursor++]
+      try {
+        prices[id] = await fetchAuctionPrice(target, id)
+      } catch {
+        failed.push(id)
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(AUCTION_CONCURRENCY, ids.length) }, worker))
+  return { server: target, prices, failed }
+}
+
 function getDefaultDataDir() {
   return path.join(getAppRootDir(), 'data')
 }
@@ -560,6 +693,27 @@ app.whenReady().then(() => {
     }
   })
   ipcMain.handle('app:getGoldServer', () => readGoldServer())
+  ipcMain.handle('app:searchAuctionItems', async (_event, keyword) => {
+    try {
+      return { ok: true, data: await searchAuctionItems(keyword) }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : '搜索失败' }
+    }
+  })
+  ipcMain.handle('app:getAuctionTrend', async (_event, itemId) => {
+    try {
+      return { ok: true, data: await fetchAuctionTrend(String(itemId || ''), null) }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : '查询失败' }
+    }
+  })
+  ipcMain.handle('app:getAuctionPrices', async (_event, itemIds, force) => {
+    try {
+      return { ok: true, data: await fetchAuctionPrices(itemIds, null, Boolean(force)) }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : '查询失败' }
+    }
+  })
   ipcMain.handle('app:setGoldServer', (_event, server) => {
     try {
       return { ok: true, data: writeGoldServer(server || {}) }

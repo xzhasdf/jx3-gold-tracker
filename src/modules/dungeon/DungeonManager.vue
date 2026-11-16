@@ -476,6 +476,20 @@ function handleDeleteBrand(row: RosterRow) {
   })
 }
 
+function handleRemoveLeader(row: RosterRow, leader: string) {
+  const count = tracker.countBrandLeaderRecords(row.name, leader)
+  dialog.warning({
+    title: '删除团长',
+    content: () => h('div', { style: 'white-space: pre-wrap; line-height: 1.6;' },
+      `确认从团牌「${row.name}」中删除团长「${leader}」吗？\n\n该团牌下有 ${count} 条收支记录用了这个团长，删除后这些记录的团长会显示为「--」，记录本身和金额都保留。`),
+    positiveText: '确认删除',
+    negativeText: '取消',
+    onPositiveClick: () => {
+      tracker.removeBrandLeader(row.name, leader)
+    }
+  })
+}
+
 const rosterColumns: DataTableColumns<RosterRow> = [
   { title: '团牌', key: 'name', width: 160 },
   {
@@ -484,7 +498,13 @@ const rosterColumns: DataTableColumns<RosterRow> = [
     render: (row) => {
       if (row.leaders.length === 0) return '-'
       return h('div', { style: 'display:flex;flex-wrap:wrap;gap:4px;' },
-        row.leaders.map((leader) => h(NTag, { size: 'small', key: leader }, { default: () => leader })))
+        row.leaders.map((leader) => h(NTag, {
+          size: 'small',
+          key: leader,
+          // 团牌只剩一个团长时不允许删
+          closable: row.leaders.length > 1,
+          onClose: () => handleRemoveLeader(row, leader)
+        }, { default: () => leader })))
     }
   },
   {

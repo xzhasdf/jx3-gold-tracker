@@ -21,7 +21,9 @@ function sanitizeState(input: unknown): StoreState {
     defaultDungeonName: typeof parsed?.defaultDungeonName === 'string' ? parsed!.defaultDungeonName : undefined,
     seededDungeons: Array.isArray(parsed?.seededDungeons) ? parsed!.seededDungeons : undefined,
     seededSeasons: Array.isArray(parsed?.seededSeasons) ? parsed!.seededSeasons : undefined,
-    seededDrops: Array.isArray(parsed?.seededDrops) ? parsed!.seededDrops : undefined
+    seededDrops: Array.isArray(parsed?.seededDrops) ? parsed!.seededDrops : undefined,
+    craft: parsed?.craft && typeof parsed.craft === 'object' ? parsed!.craft : undefined,
+    auctionWatch: Array.isArray(parsed?.auctionWatch) ? parsed!.auctionWatch : undefined
   }
 }
 

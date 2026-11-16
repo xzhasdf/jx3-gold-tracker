@@ -1,5 +1,7 @@
 <template>
-  <div class="tool-cards">
+  <CraftProfitPage v-if="subPage === 'craft'" @back="subPage = null" />
+  <AuctionPricePage v-else-if="subPage === 'auction'" @back="subPage = null" />
+  <div v-else class="tool-cards">
     <n-card hoverable class="tool-card" @click="showWineDrawer = true">
       <div class="tool-card-row">
         <img :src="icon237" class="tool-card-icon" />
@@ -46,6 +48,26 @@
         <div>
           <div class="tool-card-title">久物主义</div>
           <div class="tool-card-desc">论剑网3一件装备分摊到每天的使用成本是多少</div>
+        </div>
+      </div>
+    </n-card>
+
+    <n-card hoverable class="tool-card" @click="subPage = 'craft'">
+      <div class="tool-card-row">
+        <img :src="icon1305" class="tool-card-icon" />
+        <div>
+          <div class="tool-card-title">技艺收益</div>
+          <div class="tool-card-desc">按交易行实时价算技艺产物的成本、利润与每点精力收益</div>
+        </div>
+      </div>
+    </n-card>
+
+    <n-card hoverable class="tool-card" @click="subPage = 'auction'">
+      <div class="tool-card-row">
+        <img :src="iconAuction" class="tool-card-icon" />
+        <div>
+          <div class="tool-card-title">交易行物价</div>
+          <div class="tool-card-desc">按名字查交易行最低价与近期价格走势</div>
         </div>
       </div>
     </n-card>
@@ -290,6 +312,10 @@ import { useTracker } from '../../composables/useTracker'
 import SchoolBadge from '../shared/SchoolBadge.vue'
 import BuffCalcDrawer from './BuffCalcDrawer.vue'
 import LongUseDrawer from './LongUseDrawer.vue'
+import CraftProfitPage from './CraftProfitPage.vue'
+import AuctionPricePage from './AuctionPricePage.vue'
+import iconAuction from '../../assets/金砖.png'
+import icon1305 from '../../assets/icon/1305.png'
 import icon88 from '../../assets/icon/88.png'
 import icon237 from '../../assets/icon/237.png'
 import icon255 from '../../assets/icon/255.png'
@@ -324,6 +350,8 @@ const showAddModal = ref(false)
 const showDropDrawer = ref(false)
 const showBuffCalcDrawer = ref(false)
 const showLongUseDrawer = ref(false)
+// 全屏子页面（替换卡片列表，带返回）
+const subPage = ref<'craft' | 'auction' | null>(null)
 const showAddDropModal = ref(false)
 const editingDropId = ref<string | null>(null)
 const filterRoleId = ref<string | null>(null)
