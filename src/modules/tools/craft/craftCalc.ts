@@ -43,7 +43,7 @@ export const PROFESSIONS = ['烹饪', '缝纫', '铸造', '医术', '梓匠']
 /** 交易行寄售手续费，游戏内固定 5% */
 export const AUCTION_FEE_PERCENT = 5
 
-/** 补精力的食物：买来吃掉换精力，成本按消耗的精力折算份数（不取整，多出的精力下次还能用） */
+/** 补精力的食物：每个回复的精力；买的个数默认按需要的精力向上取整 */
 export const VIGOR_FOODS = [
   { key: 'zhuanshen', id: '5_31013', name: '转神餐', vigor: 20, q: 3 },
   { key: 'fotiaoqiang', id: '5_31012', name: '佛跳墙', vigor: 38, q: 4 }
@@ -53,9 +53,11 @@ export type VigorFood = (typeof VIGOR_FOODS)[number]
 // 食物名 / 品质要能被 itemName、qualityColor 查到，配方数据里没有就补上
 for (const f of VIGOR_FOODS) ITEMS[f.id] ??= { name: f.name, q: f.q }
 
-/** 梓匠配方在 JX3Box 里没有资料片标记，全部视为当前版本 */
+const VIGOR_FOOD_IDS = new Set<string>(VIGOR_FOODS.map((f) => f.id))
+
+/** 梓匠配方在 JX3Box 里没有资料片标记，全部视为当前版本；转神餐 / 佛跳墙是老配方但一直在用，也算 */
 export function isCurrentRecipe(r: CraftRecipe): boolean {
-  return r.prof === '梓匠' || r.dlc === CURRENT_DLC
+  return r.prof === '梓匠' || r.dlc === CURRENT_DLC || VIGOR_FOOD_IDS.has(r.outs[0]?.[0])
 }
 
 export function itemName(id: string): string {
@@ -210,6 +212,11 @@ export interface RecipeResult {
   cost: number | null
   revenue: number | null
   profit: number | null
+  /**
+   * 保底利润：只算主产物（概率最高的那件）的收益 − 成本。
+   * 只有一种产物、或算不出利润时为 null
+   */
+  baseProfit: number | null
   vigor: number
   perVigor: number | null
   /** 缺价的材料名 */
@@ -252,6 +259,8 @@ export function evaluateRecipe(r: CraftRecipe, ctx: PriceContext): RecipeResult 
   const revenue = primaryMissing ? null : outputs.reduce((s, o) => s + (o.value ?? 0), 0)
   const profit = revenue === null || cost === null ? null : revenue - cost
   const expectedItems = outputs.reduce((s, o) => s + o.expected, 0)
+  // 有小概率产物（·精、高价变体）就给保底利润，即只出主产物时的利润
+  const baseProfit = profit === null || cost === null || outputs.length < 2 ? null : outputs[0].value! - cost
 
   return {
     recipe: r,
@@ -264,6 +273,7 @@ export function evaluateRecipe(r: CraftRecipe, ctx: PriceContext): RecipeResult 
     cost,
     revenue,
     profit,
+    baseProfit,
     vigor,
     perVigor: profit === null || vigor <= 0 ? null : profit / vigor,
     missingMats: missing,

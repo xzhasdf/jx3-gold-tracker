@@ -133,6 +133,8 @@ export interface CraftSettings {
   foodSelf: Record<string, number>
   /** 用户改过的单次期望产出：recipeId → 产物itemId → 件数；缺省按配方的概率 × 数量区间算 */
   yield: Record<string, Record<string, number>>
+  /** 收藏的配方 id，按收藏先后排列；在「收藏」页签里集中查看 */
+  favorites: string[]
 }
 
 /** 交易行物价页的常查物品 */

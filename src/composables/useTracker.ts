@@ -211,7 +211,9 @@ function init() {
   buffCalc.value = normalizeBuffCalc(state.buffCalc)
   longUse.value = Array.isArray(state.longUse) ? state.longUse : []
   longUseLink.value = normalizeLongUseLink(state.longUseLink)
-  craft.value = normalizeCraft(state.craft)
+  // 制作次数、补精力食物（及买 / 自制个数）只在本次打开期间有效，每次启动重置；
+  // 自备、取价、自定义价、期望产出、收藏照常保留
+  craft.value = { ...normalizeCraft(state.craft), times: {}, vigorFood: {}, foodCount: {}, foodSelf: {} }
   auctionWatch.value = normalizeAuctionWatch(state.auctionWatch)
 
   // 清理已从 DEFAULT_SPECIAL_DROPS 移除的旧默认条目
@@ -873,7 +875,10 @@ function normalizeCraft(input?: Partial<CraftSettings> | null): CraftSettings {
     times: plainRecord(input?.times, (v) => {
       const n = count(v)
       return n !== undefined && n > 1 ? n : undefined
-    })
+    }),
+    favorites: Array.isArray(input?.favorites)
+      ? [...new Set(input.favorites.filter((v): v is string => typeof v === 'string' && v.length > 0))]
+      : []
   }
 }
 

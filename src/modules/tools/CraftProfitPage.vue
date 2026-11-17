@@ -18,6 +18,7 @@
       <!-- 技艺 Tab、中间件价格、筛选框和下面的表头在滚动时固定在顶部 -->
       <div ref="stickyEl" class="cp-sticky">
       <n-tabs v-model:value="activeProf" type="line" class="cp-tabs">
+        <n-tab-pane :name="FAV_TAB" :tab="`★ ${FAV_TAB}${favoriteIds.length ? ` ${favoriteIds.length}` : ''}`" />
         <n-tab-pane v-for="p in PROFESSIONS" :key="p" :name="p" :tab="p" />
       </n-tabs>
 
@@ -32,18 +33,25 @@
 
       <div class="cp-add">
         <n-input v-model:value="keyword" clearable size="small" :placeholder="`按名称筛选${activeProf}配方`" style="width: 260px" />
-        <span class="cp-muted">{{ activeProf }}共 {{ profRows.length }} 条{{ activeProf === '梓匠' ? '' : '当前版本' }}配方</span>
+        <span v-if="isFavTab" class="cp-muted">共收藏 {{ profRows.length }} 条配方</span>
+        <span v-else class="cp-muted">{{ activeProf }}共 {{ profRows.length }} 条{{ activeProf === '梓匠' ? '' : '当前版本' }}配方</span>
       </div>
       </div>
 
-      <div v-if="!profRows.length" class="cp-empty">没有匹配的配方</div>
+      <div v-if="!profRows.length" class="cp-empty">{{ isFavTab && !favoriteIds.length ? '还没有收藏配方，点配方名前的 ☆ 即可收藏' : '没有匹配的配方' }}</div>
 
       <table v-else class="cp-table" :style="{ '--cp-sticky-h': `${stickyHeight}px` }">
         <thead>
           <tr>
             <th class="cp-col-name">配方</th>
             <th v-for="col in SORT_COLS" :key="col.key" class="cp-num cp-sortable" @click="toggleSort(col.key)">
-              {{ col.label }}<span class="cp-sort">{{ sortKey === col.key ? (sortDesc ? '▼' : '▲') : '' }}</span>
+              {{ col.label }}<n-tooltip v-if="col.key === 'profit'" :delay="100" placement="bottom">
+                <template #trigger><span class="cp-help" @click.stop>?</span></template>
+                <div>期望利润 = Σ（产物单价 × 单次期望 × 制作次数 × 95%）− 成本</div>
+                <div class="cp-help-sub">单次期望 = 出现概率 ×（最少 + 最多）÷ 2，可在展开面板里改；95% 为扣除交易行手续费</div>
+                <div>保底 = 主产物单价 × 单次期望 × 制作次数 × 95% − 成本（不算【精】等小概率产物）</div>
+                <div>部分缺价：有小概率产物没有交易行报价，按 0 计入，期望利润可能偏低</div>
+              </n-tooltip><span class="cp-sort">{{ sortKey === col.key ? (sortDesc ? '▼' : '▲') : '' }}</span>
             </th>
           </tr>
         </thead>
@@ -52,6 +60,12 @@
             <tr class="cp-row" :class="{ open: expanded === row.recipe.id }" @click="toggleExpand(row.recipe.id)">
               <td class="cp-col-name">
                 <span class="cp-caret">{{ expanded === row.recipe.id ? '▾' : '▸' }}</span>
+                <span
+                  class="cp-star"
+                  :class="{ on: favoriteSet.has(row.recipe.id) }"
+                  :title="favoriteSet.has(row.recipe.id) ? '取消收藏' : '收藏'"
+                  @click.stop="toggleFavorite(row.recipe.id)"
+                >{{ favoriteSet.has(row.recipe.id) ? '★' : '☆' }}</span>
                 <span :style="{ color: qualityColor(row.recipe.outs[0]?.[0]) }">{{ row.recipe.name }}</span>
                 <span v-if="row.times > 1" class="cp-times">×{{ row.times }}</span>
                 <n-tag size="tiny" :bordered="false" class="cp-prof">{{ row.recipe.prof }}</n-tag>
@@ -65,7 +79,11 @@
               <td class="cp-num"><CraftMoney v-if="row.cost !== null" :value="row.cost" /><span v-else class="cp-missing">缺价</span></td>
               <td class="cp-num"><CraftMoney v-if="row.unitCost !== null" :value="row.unitCost" /><span v-else>—</span></td>
               <td class="cp-num"><CraftMoney v-if="row.revenue !== null" :value="row.revenue" /><span v-else class="cp-missing">无报价</span></td>
-              <td class="cp-num" :class="profitClass(row.profit)"><CraftMoney v-if="row.profit !== null" :value="row.profit" /><span v-else>—</span></td>
+              <td class="cp-num" :class="profitClass(row.profit)">
+                <CraftMoney v-if="row.profit !== null" :value="row.profit" /><span v-else>—</span>
+                <div v-if="row.baseProfit !== null" class="cp-subline" :class="profitClass(row.baseProfit)">保底 <CraftMoney :value="row.baseProfit" /></div>
+                <div v-if="row.partialOutputs" class="cp-subline cp-partial">部分缺价</div>
+              </td>
               <td class="cp-num cp-strong" :class="profitClass(row.perVigor)"><CraftMoney v-if="row.perVigor !== null" :value="row.perVigor" /><span v-else>—</span></td>
             </tr>
             <tr v-if="expanded === row.recipe.id" class="cp-detail-row">
@@ -237,7 +255,12 @@
                           </td>
                           <td class="cp-num">{{ row.vigorFood.self.count }}</td>
                           <td></td>
-                          <td class="cp-npc" :title="`一次制作的材料费 ÷ 期望产出 ${round2(row.vigorFood.self.perCraft)} 个`">按材料费</td>
+                          <td class="cp-npc">
+                            <n-tooltip :delay="100">
+                              <template #trigger><span class="cp-hint">按材料费</span></template>
+                              一次制作的材料费 ÷ 期望产出 {{ round2(row.vigorFood.self.perCraft) }} 个
+                            </n-tooltip>
+                          </td>
                           <td class="cp-num">
                             <CraftMoney v-if="row.vigorFood.self.unit.price !== null" :value="row.vigorFood.self.unit.price" />
                             <span v-else class="cp-missing">材料缺价</span>
@@ -366,10 +389,25 @@ const SOURCE_OPTIONS = [
 ]
 
 // ─── 技艺 Tab / 配方选择 ──────────────────────────────────────────
-const activeProf = ref(PROFESSIONS[0])
+const FAV_TAB = '收藏'
+/** 收藏里可能有数据更新后已不存在的配方 id，显示时跳过 */
+const favoriteIds = computed(() => settings.value.favorites.filter((id) => RECIPE_MAP.has(id)))
+const favoriteSet = computed(() => new Set(settings.value.favorites))
+// 有收藏就默认打开「收藏」页签
+const activeProf = ref<string>(favoriteIds.value.length ? FAV_TAB : PROFESSIONS[0])
+const isFavTab = computed(() => activeProf.value === FAV_TAB)
 const keyword = ref('')
-/** 当前 Tab 的全部配方：当前版本（梓匠无资料片标记，全部） */
-const recipesOfProf = computed(() => RECIPES.filter((r) => r.prof === activeProf.value && isCurrentRecipe(r)))
+/** 当前 Tab 的全部配方：当前版本（梓匠无资料片标记，全部）；收藏页签不限版本 */
+const recipesOfProf = computed(() =>
+  isFavTab.value
+    ? favoriteIds.value.map((id) => RECIPE_MAP.get(id)!)
+    : RECIPES.filter((r) => r.prof === activeProf.value && isCurrentRecipe(r))
+)
+
+function toggleFavorite(recipeId: string) {
+  const list = settings.value.favorites
+  tracker.setCraft({ favorites: list.includes(recipeId) ? list.filter((id) => id !== recipeId) : [...list, recipeId] })
+}
 
 // ─── 交易行价格 ────────────────────────────────────────────────
 const auction = ref<Record<string, AuctionPrice | null>>({})
@@ -750,6 +788,55 @@ const round2 = (n: number) => Math.round(n * 100) / 100
   display: inline-block;
   width: 14px;
   color: #a0a9b4;
+}
+.cp-subline {
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: normal;
+}
+.cp-subline:not(.cp-pos):not(.cp-neg) {
+  color: #8a96a3;
+}
+.cp-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: 3px;
+  border: 1px solid #b6bec8;
+  border-radius: 50%;
+  font-size: 10px;
+  line-height: 1;
+  color: #8a96a3;
+  cursor: help;
+  vertical-align: 1px;
+}
+.cp-help-sub {
+  margin-bottom: 4px;
+  font-size: 12px;
+  opacity: 0.75;
+}
+.cp-help:hover {
+  border-color: #18a058;
+  color: #18a058;
+}
+.cp-hint {
+  cursor: help;
+}
+.cp-partial {
+  color: #d08a00 !important;
+}
+.cp-star {
+  display: inline-block;
+  width: 16px;
+  margin-right: 2px;
+  color: #c2c8cf;
+  cursor: pointer;
+}
+.cp-star:hover,
+.cp-star.on {
+  color: #f0a020;
 }
 .cp-prof {
   margin-left: 6px;
