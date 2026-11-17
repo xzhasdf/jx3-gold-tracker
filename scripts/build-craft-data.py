@@ -164,6 +164,12 @@ def main():
                 if item not in mids[r['prof']]:
                     mids[r['prof']].append(item)
 
+    # 中间件自己的配方在 JX3Box 上没有资料片标记（nDlc = 0），要单独补进来，否则「配方」取价算不出来
+    mid_ids = {i for l in mids.values() for i in l}
+    have = {r['id'] for r in recipes}
+    recipes += [r for r in all_recipes if r['id'] not in have and r['outs'] and r['outs'][0][0] in mid_ids]
+    recipes.sort(key=lambda r: (r['prof'], -r['dlc'], r['id']))
+
     keys = sorted({k for r in recipes for k, *_ in r['mats'] + r['outs']})
 
     def lookup(chunk):

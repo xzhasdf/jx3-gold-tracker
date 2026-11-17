@@ -213,7 +213,7 @@ function init() {
   longUseLink.value = normalizeLongUseLink(state.longUseLink)
   // 制作次数、补精力食物（及买 / 自制个数）只在本次打开期间有效，每次启动重置；
   // 自备、取价、自定义价、期望产出、收藏照常保留
-  craft.value = { ...normalizeCraft(state.craft), times: {}, vigorFood: {}, foodCount: {}, foodSelf: {} }
+  craft.value = { ...normalizeCraft(state.craft), times: {}, vigorFood: {}, foodCount: {}, foodSelf: {}, midSelf: {} }
   auctionWatch.value = normalizeAuctionWatch(state.auctionWatch)
 
   // 清理已从 DEFAULT_SPECIAL_DROPS 移除的旧默认条目
@@ -862,12 +862,16 @@ function normalizeCraft(input?: Partial<CraftSettings> | null): CraftSettings {
       const inner = plainRecord(v, count)
       return Object.keys(inner).length ? inner : undefined
     }),
-    source: plainRecord(input?.source, (v) => (v === 'manual' ? (v as CraftSettings['source'][string]) : undefined)),
+    source: plainRecord(input?.source, (v) => (v === 'manual' || v === 'craft' ? (v as CraftSettings['source'][string]) : undefined)),
     manual: plainRecord(input?.manual, (v) => (Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : undefined)),
     // 与 craftCalc 的 VIGOR_FOODS 对应；这里不能 import 它（模块顶层初始化，见上方 TDZ 说明）
     vigorFood: plainRecord(input?.vigorFood, (v) => (v === 'zhuanshen' || v === 'fotiaoqiang' ? v : undefined)),
     foodCount: plainRecord(input?.foodCount, (v) => (Number.isFinite(Number(v)) && Number(v) >= 0 ? Math.floor(Number(v)) : undefined)),
     foodSelf: plainRecord(input?.foodSelf, (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.floor(Number(v)) : undefined)),
+    midSelf: plainRecord(input?.midSelf, (v) => {
+      const inner = plainRecord(v, (n) => (Number.isFinite(Number(n)) && Number(n) >= 0 ? Math.floor(Number(n)) : undefined))
+      return Object.keys(inner).length ? inner : undefined
+    }),
     yield: plainRecord(input?.yield, (v) => {
       const inner = plainRecord(v, (n) => (Number.isFinite(Number(n)) && Number(n) >= 0 ? Number(n) : undefined))
       return Object.keys(inner).length ? inner : undefined

@@ -22,19 +22,10 @@
         <n-tab-pane v-for="p in PROFESSIONS" :key="p" :name="p" :tab="p" />
       </n-tabs>
 
-      <div v-if="midPrices.length" class="cp-mids">
-        <div v-for="m in midPrices" :key="m.id" class="cp-mid">
-          <span class="cp-mid-name" :style="{ color: qualityColor(m.id) }">{{ m.name }}</span>
-          <CraftMoney v-if="m.unit.price !== null" :value="m.unit.price" class="cp-mid-price" />
-          <span v-else class="cp-missing">{{ loading ? '加载中' : '无报价' }}</span>
-          <span v-if="m.unit.updatedAt" :class="ageClass(m.unit.updatedAt)">{{ ageText(m.unit.updatedAt) }}</span>
-        </div>
-      </div>
-
       <div class="cp-add">
         <n-input v-model:value="keyword" clearable size="small" :placeholder="`按名称筛选${activeProf}配方`" style="width: 260px" />
-        <span v-if="isFavTab" class="cp-muted">共收藏 {{ profRows.length }} 条配方</span>
-        <span v-else class="cp-muted">{{ activeProf }}共 {{ profRows.length }} 条{{ activeProf === '梓匠' ? '' : '当前版本' }}配方</span>
+        <span v-if="isFavTab" class="cp-muted">共收藏 {{ listedCount }} 条配方</span>
+        <span v-else class="cp-muted">{{ activeProf }}共 {{ listedCount }} 条{{ activeProf === '梓匠' ? '' : '当前版本' }}配方</span>
       </div>
       </div>
 
@@ -45,9 +36,15 @@
           <tr>
             <th class="cp-col-name">配方</th>
             <th v-for="col in SORT_COLS" :key="col.key" class="cp-num cp-sortable" @click="toggleSort(col.key)">
-              {{ col.label }}<n-tooltip v-if="col.key === 'profit'" :delay="100" placement="bottom">
+              {{ col.label }}<n-tooltip v-if="col.key === 'revenue'" :delay="100" placement="bottom">
                 <template #trigger><span class="cp-help" @click.stop>?</span></template>
-                <div>期望利润 = Σ（产物单价 × 单次期望 × 制作次数 × 95%）− 成本</div>
+                <div>收益 = 交易行售出实际可获得金额（已扣 5% 手续费）</div>
+                <div>综合收益 = 各产物按出现概率加权的期望收益 = Σ（产物单价 × 单次期望 × 制作次数 × 95%）</div>
+                <div class="cp-help-sub">单次期望 = 出现概率 ×（最少 + 最多）÷ 2；95% 为扣除交易行手续费</div>
+                <div>保底 = 只算主产物（概率最高的那件）的收益，不算【精】等小概率产物</div>
+              </n-tooltip><n-tooltip v-else-if="col.key === 'profit'" :delay="100" placement="bottom">
+                <template #trigger><span class="cp-help" @click.stop>?</span></template>
+                <div>综合利润 = Σ（产物单价 × 单次期望 × 制作次数 × 95%）− 成本</div>
                 <div class="cp-help-sub">单次期望 = 出现概率 ×（最少 + 最多）÷ 2，可在展开面板里改；95% 为扣除交易行手续费</div>
                 <div>保底 = 主产物单价 × 单次期望 × 制作次数 × 95% − 成本（不算【精】等小概率产物）</div>
                 <div>部分缺价：有小概率产物没有交易行报价，按 0 计入，期望利润可能偏低</div>
@@ -56,8 +53,49 @@
           </tr>
         </thead>
         <tbody>
+            <tr v-if="midSummary" class="cp-mids-row">
+              <td colspan="7">
+                <span class="cp-mids-title">中间件 {{ midSummary.total }} 个</span>
+                <n-button size="tiny" secondary type="primary" @click="midOpen = true">查看 / 编辑中间件配方</n-button>
+                <span class="cp-muted">取价选「配方」时按自制成本算</span>
+              </td>
+            </tr>
           <template v-for="row in profRows" :key="row.recipe.id">
-            <tr class="cp-row" :class="{ open: expanded === row.recipe.id }" @click="toggleExpand(row.recipe.id)">
+           <!-- 中间件配方的行搬到右侧抽屉里（Teleport），抽屉没打开时不渲染 -->
+           <Teleport v-if="!isMidRow(row) || midTbody" :to="midTbody ?? 'body'" :disabled="!isMidRow(row)">
+            <tr v-if="isMidRow(row)" class="cp-row cp-mid-row" :class="{ open: expanded === row.recipe.id }" @click="toggleExpand(row.recipe.id)">
+              <td class="cp-mid-name-cell">
+                <span class="cp-caret">{{ expanded === row.recipe.id ? '▾' : '▸' }}</span>
+                <span :style="{ color: qualityColor(row.recipe.outs[0][0]) }">{{ midInfo(row).name }}</span>
+              </td>
+              <td class="cp-num">
+                <CraftMoney v-if="midInfo(row).price !== null" :value="midInfo(row).price!" />
+                <span v-else class="cp-missing">{{ loading ? '加载中' : '无报价' }}</span>
+              </td>
+              <td :class="ageClass(midInfo(row).updatedAt)">{{ midInfo(row).updatedAt ? ageText(midInfo(row).updatedAt) : '' }}</td>
+              <td class="cp-num">
+                <CraftMoney
+                  v-if="row.unitCost !== null"
+                  :value="row.unitCost"
+                  :class="midInfo(row).price !== null ? (row.unitCost < midInfo(row).price! ? 'cp-pos' : 'cp-neg') : ''"
+                />
+                <span v-else class="cp-missing">缺价</span>
+              </td>
+              <td class="cp-num">
+                <CraftMoney
+                  v-if="row.unitCost !== null && midInfo(row).price !== null"
+                  :value="midInfo(row).price! - row.unitCost"
+                  :class="midInfo(row).price! - row.unitCost >= 0 ? 'cp-pos' : 'cp-neg'"
+                />
+                <span v-else>—</span>
+              </td>
+              <td class="cp-num">
+                <CraftMoney v-if="row.perVigor !== null" :value="row.perVigor" :class="profitClass(row.perVigor)" />
+                <span v-else>—</span>
+              </td>
+              <td class="cp-num">{{ round1(row.vigor) }}</td>
+            </tr>
+            <tr v-if="!isMidRow(row)" class="cp-row" :class="{ open: expanded === row.recipe.id }" @click="toggleExpand(row.recipe.id)">
               <td class="cp-col-name">
                 <span class="cp-caret">{{ expanded === row.recipe.id ? '▾' : '▸' }}</span>
                 <span
@@ -78,13 +116,18 @@
               <td class="cp-num">{{ round1(row.vigor) }}</td>
               <td class="cp-num"><CraftMoney v-if="row.cost !== null" :value="row.cost" /><span v-else class="cp-missing">缺价</span></td>
               <td class="cp-num"><CraftMoney v-if="row.unitCost !== null" :value="row.unitCost" /><span v-else>—</span></td>
-              <td class="cp-num"><CraftMoney v-if="row.revenue !== null" :value="row.revenue" /><span v-else class="cp-missing">无报价</span></td>
+              <td class="cp-num">
+                <CraftMoney v-if="row.revenue !== null" :value="row.revenue" /><span v-else class="cp-missing">无报价</span>
+                <div v-if="row.baseRevenue !== null" class="cp-subline">保底 <CraftMoney :value="row.baseRevenue" /></div>
+              </td>
               <td class="cp-num" :class="profitClass(row.profit)">
                 <CraftMoney v-if="row.profit !== null" :value="row.profit" /><span v-else>—</span>
                 <div v-if="row.baseProfit !== null" class="cp-subline" :class="profitClass(row.baseProfit)">保底 <CraftMoney :value="row.baseProfit" /></div>
                 <div v-if="row.partialOutputs" class="cp-subline cp-partial">部分缺价</div>
               </td>
-              <td class="cp-num cp-strong" :class="profitClass(row.perVigor)"><CraftMoney v-if="row.perVigor !== null" :value="row.perVigor" /><span v-else>—</span></td>
+              <td class="cp-num cp-strong" :class="profitClass(row.perVigor)"><CraftMoney v-if="row.perVigor !== null" :value="row.perVigor" /><span v-else>—</span>
+                <div v-if="row.basePerVigor !== null" class="cp-subline" :class="profitClass(row.basePerVigor)">保底 <CraftMoney :value="row.basePerVigor" /></div>
+              </td>
             </tr>
             <tr v-if="expanded === row.recipe.id" class="cp-detail-row">
               <td colspan="7">
@@ -140,7 +183,7 @@
                         <span>个</span>
                       </template>
                     </span>
-                    <span class="cp-muted">数量和自备都是 {{ row.times }} 次合计，自备的部分不计成本；精力 {{ row.recipe.vigor }} × {{ row.times }} = {{ row.vigor }}</span>
+                    <span class="cp-muted">数量和自备都是 {{ row.times }} 次合计，自备的部分不计成本、不计精力；精力 {{ row.recipe.vigor }} × {{ row.times }}<template v-if="row.vigor !== row.recipe.vigor * row.times"> + 中间件自制 {{ round1(row.vigor - row.recipe.vigor * row.times) }}</template> = {{ round1(row.vigor) }}</span>
                     <span class="cp-detail-actions">
                       <n-button text size="tiny" @click="setAllOwned(row, true)">全部自备</n-button>
                       <n-button text size="tiny" @click="setAllOwned(row, false)">清空自备</n-button>
@@ -148,14 +191,18 @@
                   </div>
                   <table class="cp-sub">
                     <thead>
-                      <tr><th>材料</th><th class="cp-num">需要</th><th>自备</th><th>取价</th><th class="cp-num">单价</th><th class="cp-num">小计</th><th>价格时间</th></tr>
+                      <tr><th>材料</th><th class="cp-num">需要</th><th>自备<n-tooltip :delay="100" placement="bottom">
+                          <template #trigger><span class="cp-help">?</span></template>
+                          自行获取无消耗的数量
+                        </n-tooltip></th><th>取价</th><th class="cp-num">单价<n-tooltip :delay="100" placement="bottom"><template #trigger><span class="cp-help">?</span></template>交易行最低售价（取价选 NPC 商店 / 自定义 / 配方时按所选的价）</n-tooltip></th><th class="cp-num">小计</th><th>价格时间</th></tr>
                     </thead>
                     <tbody>
                       <tr v-for="line in row.lines" :key="line.id">
                         <td :style="{ color: qualityColor(line.id) }">{{ line.name }}</td>
                         <td class="cp-num">{{ line.need }}</td>
                         <td>
-                          <div class="cp-owned">
+                          <span v-if="line.unit.via === 'npc'" class="cp-muted">—</span>
+                          <div v-else class="cp-owned">
                             <n-input-number
                               :value="line.owned"
                               size="tiny"
@@ -166,7 +213,7 @@
                               @update:value="(v: number | null) => setOwned(row.recipe.id, line.id, v ?? 0)"
                             />
                             <n-button text size="tiny" @click="setOwned(row.recipe.id, line.id, line.owned === line.need ? 0 : line.need)">
-                              {{ line.owned === line.need ? '清零' : '全备' }}
+                              {{ line.owned === line.need ? '清零' : '全自备' }}
                             </n-button>
                           </div>
                         </td>
@@ -177,10 +224,29 @@
                             :value="line.unit.via"
                             size="small"
                             class="cp-source"
-                            @update:value="(v: CraftPriceSource) => setSource(line.id, v)"
+@update:value="(v: CraftPriceSource) => setSource(line.id, v)"
                           >
-                            <n-radio-button v-for="o in SOURCE_OPTIONS" :key="o.value" :value="o.value" :label="o.label" />
+                            <n-radio-button v-for="o in MID_IDS.has(line.id) ? MID_SOURCE_OPTIONS : SOURCE_OPTIONS" :key="o.value" :value="o.value" :label="o.label" />
                           </n-radio-group>
+                          <div v-if="line.unit.via === 'craft'" class="cp-mid-self">
+                            <div class="cp-mid-self-line">
+                              自制
+                              <n-input-number
+                                :value="line.craftCount"
+                                size="tiny"
+                                :min="0"
+                                :max="line.buy"
+                                :disabled="line.buy === 0"
+                                :precision="0"
+                                :class="{ 'cp-yield-custom': settings.midSelf[row.recipe.id]?.[line.id] !== undefined }"
+                                style="width: 84px"
+                                @update:value="(v: number | null) => setMidSelf(row.recipe.id, line.id, v)"
+                              />
+                              个
+                              <n-button text size="tiny" :disabled="settings.midSelf[row.recipe.id]?.[line.id] === undefined" @click="setMidSelf(row.recipe.id, line.id, null)">全部自制</n-button>
+                            </div>
+                            <div class="cp-muted">剩余 {{ line.need - line.craftCount }} 个：交易行获取 {{ line.buy - line.craftCount }} 个，自备 {{ line.owned }} 个</div>
+                          </div>
                         </td>
                         <td class="cp-num">
                           <n-input-number
@@ -188,7 +254,7 @@
                             :value="toGoldInput(settings.manual[line.id])"
                             size="tiny"
                             :min="0"
-                            :precision="4"
+                            :precision="2"
                             :show-button="false"
                             placeholder="单价"
                             style="width: 96px"
@@ -198,6 +264,7 @@
                           </n-input-number>
                           <CraftMoney v-else-if="line.unit.price !== null" :value="line.unit.price" />
                           <span v-else class="cp-missing">无报价</span>
+                          <div v-if="line.craftVigor > 0" class="cp-muted">+{{ round1(line.craftVigor) }} 精力</div>
                         </td>
                         <td class="cp-num">
                           <CraftMoney v-if="line.subtotal !== null" :value="line.subtotal" />
@@ -230,7 +297,7 @@
                               :value="toGoldInput(settings.manual[row.vigorFood.food.id])"
                               size="tiny"
                               :min="0"
-                              :precision="4"
+                              :precision="2"
                               :show-button="false"
                               placeholder="单价"
                               style="width: 96px"
@@ -281,12 +348,15 @@
                   </div>
                   <table class="cp-sub">
                     <thead>
-                      <tr><th>产物</th><th class="cp-num">单次期望</th><th>取价</th><th class="cp-num">单价</th><th class="cp-num">收益</th><th>价格时间</th></tr>
+                      <tr><th>产物</th><th class="cp-num">单次期望</th><th>取价</th><th class="cp-num">单价<n-tooltip :delay="100" placement="bottom"><template #trigger><span class="cp-help">?</span></template>交易行最低售价</n-tooltip></th><th class="cp-num">收益<n-tooltip :delay="100" placement="bottom">
+                          <template #trigger><span class="cp-help">?</span></template>
+                          交易行售出实际可获得金额（已扣 5% 手续费）
+                        </n-tooltip></th><th>价格时间</th></tr>
                     </thead>
                     <tbody>
-                      <tr v-for="out in row.outputs" :key="out.id">
+                      <tr v-for="(out, oi) in row.outputs" :key="out.id">
                         <td>
-                          <div :style="{ color: nameColor(out.id) }">{{ out.name }}</div>
+                          <div :style="{ color: nameColor(out.id, oi > 0 && out.perCraft < LOW_EXPECT) }">{{ out.name }}</div>
                           <div v-if="effectOf(out.id)" class="cp-fx cp-fx-full">{{ effectOf(out.id) }}</div>
                         </td>
                         <td class="cp-num">
@@ -324,7 +394,7 @@
                             :value="toGoldInput(settings.manual[out.id])"
                             size="tiny"
                             :min="0"
-                            :precision="4"
+                            :precision="2"
                             :show-button="false"
                             placeholder="单价"
                             style="width: 96px"
@@ -343,9 +413,30 @@
                 </div>
               </td>
             </tr>
+           </Teleport>
           </template>
         </tbody>
       </table>
+
+      <n-drawer v-model:show="midOpen" :width="1040" placement="right">
+        <n-drawer-content :title="`${activeProf}中间件配方`" closable>
+          <div class="cp-mids-label">点击中间件展开配方；「省」= 交易行价 − 自制成本，负数表示自己做更亏</div>
+          <table class="cp-table cp-mid-table">
+            <thead>
+              <tr>
+                <th>中间件</th>
+                <th class="cp-num">交易行价</th>
+                <th>价格时间</th>
+                <th class="cp-num">自制成本/个</th>
+                <th class="cp-num">省</th>
+                <th class="cp-num">每点精力</th>
+                <th class="cp-num">精力</th>
+              </tr>
+            </thead>
+            <tbody :ref="(el) => (midTbody = el as HTMLElement | null)"></tbody>
+          </table>
+        </n-drawer-content>
+      </n-drawer>
 
       <div v-if="profRows.length" class="cp-foot cp-muted">
         <span v-if="lastRefresh">价格更新于 {{ formatClock(lastRefresh) }}（本地缓存 5 分钟）</span>
@@ -357,7 +448,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useTracker } from '../../composables/useTracker'
-import type { CraftPriceSource } from '../../types'
+import type { CraftPriceSource, CraftSettings } from '../../types'
 import CraftMoney from './craft/CraftMoney.vue'
 import { ageText, isStale } from './craft/priceAge'
 import {
@@ -370,6 +461,8 @@ import {
   isCurrentRecipe,
   VIGOR_FOODS,
   MIDS,
+  MID_IDS,
+  npcPrice,
   priceOf,
   evaluateRecipe,
   type PriceContext,
@@ -387,6 +480,8 @@ const SOURCE_OPTIONS = [
   { label: '交易行', value: 'auction' },
   { label: '自定义', value: 'manual' }
 ]
+/** 中间件材料多一个「配方」：按配方材料费折算（仅材料行；NPC 商店的材料不走这里） */
+const MID_SOURCE_OPTIONS = [...SOURCE_OPTIONS, { label: '配方', value: 'craft' }]
 
 // ─── 技艺 Tab / 配方选择 ──────────────────────────────────────────
 const FAV_TAB = '收藏'
@@ -461,8 +556,8 @@ const SORT_COLS: Array<{ key: SortKey; label: string }> = [
   { key: 'vigor', label: '精力' },
   { key: 'cost', label: '成本' },
   { key: 'unitCost', label: '单件成本' },
-  { key: 'revenue', label: '收益' },
-  { key: 'profit', label: '利润' },
+  { key: 'revenue', label: '综合收益' },
+  { key: 'profit', label: '综合利润' },
   { key: 'perVigor', label: '每点精力利润' }
 ]
 const sortKey = ref<SortKey>('perVigor')
@@ -501,14 +596,24 @@ function resort() {
 
 const profRows = computed(() => {
   const kw = keyword.value.trim()
-  return kw ? sortedRows.value.filter((r) => r.recipe.name.includes(kw)) : sortedRows.value
+  // 中间件的明细不受名称筛选影响（它们在中间件条里展开）
+  return kw ? sortedRows.value.filter((r) => isMidRow(r) || r.recipe.name.includes(kw)) : sortedRows.value
 })
+
+/** 技艺页签里的中间件配方：汇总行由顶部中间件条代替（收藏页签仍按普通行显示） */
+function isMidRow(r: RecipeResult): boolean {
+  return !isFavTab.value && MID_IDS.has(r.recipe.outs[0]?.[0])
+}
+const listedCount = computed(() => profRows.value.filter((r) => !isMidRow(r)).length)
 
 const sortedRows = computed(() => {
   const byId = new Map(rows.value.map((r) => [r.recipe.id, r]))
   const known = order.value.filter((id) => byId.has(id))
   const fresh = rows.value.map((r) => r.recipe.id).filter((id) => !known.includes(id))
-  return [...known, ...fresh].map((id) => byId.get(id)!)
+  const all = [...known, ...fresh].map((id) => byId.get(id)!)
+  // 中间件配方是各配方共用的基础材料，技艺页签里置顶（各自仍按当前排序）；收藏页签保持收藏顺序
+  if (isFavTab.value) return all
+  return [...all.filter(isMidRow), ...all.filter((r) => !isMidRow(r))]
 })
 
 const expanded = ref<string | null>(null)
@@ -521,20 +626,27 @@ function toggleExpand(id: string) {
 
 // ─── 自备 / 取价设置 ────────────────────────────────────────────
 function ownedCount(recipeId: string): number {
-  return Object.keys(settings.value.owned[recipeId] ?? {}).length
+  // NPC 商店的材料不支持自备，以前存下的不算
+  return Object.keys(settings.value.owned[recipeId] ?? {}).filter((id) => npcPrice(id) === null).length
 }
 
 function setOwned(recipeId: string, itemId: string, count: number) {
   const inner = { ...(settings.value.owned[recipeId] ?? {}) }
   if (count > 0) inner[itemId] = Math.floor(count)
   else delete inner[itemId]
-  tracker.setCraft({ owned: { ...settings.value.owned, [recipeId]: inner } })
+  // 自备变了，要买的数量跟着变，之前手填的「自制 N 个」作废，回到全部自制
+  const midInner = { ...(settings.value.midSelf[recipeId] ?? {}) }
+  delete midInner[itemId]
+  const midSelf = { ...settings.value.midSelf, [recipeId]: midInner }
+  if (!Object.keys(midInner).length) delete midSelf[recipeId]
+  tracker.setCraft({ owned: { ...settings.value.owned, [recipeId]: inner }, midSelf })
 }
 
 function setAllOwned(row: RecipeResult, all: boolean) {
   const inner: Record<string, number> = {}
-  if (all) row.lines.forEach((l) => { inner[l.id] = l.need })
-  tracker.setCraft({ owned: { ...settings.value.owned, [row.recipe.id]: inner } })
+  if (all) row.lines.forEach((l) => { if (l.unit.via !== 'npc') inner[l.id] = l.need })
+  const { [row.recipe.id]: _mid, ...midSelf } = settings.value.midSelf
+  tracker.setCraft({ owned: { ...settings.value.owned, [row.recipe.id]: inner }, midSelf })
 }
 
 function setTimes(recipeId: string, n: number) {
@@ -547,7 +659,19 @@ function setTimes(recipeId: string, n: number) {
   if (value === (settings.value.times[recipeId] ?? 1)) return
   const { [recipeId]: _count, ...foodCount } = settings.value.foodCount
   const { [recipeId]: _self, ...foodSelf } = settings.value.foodSelf
-  tracker.setCraft({ times, foodCount, foodSelf })
+  // 中间件自制个数同样是按旧次数填的，清掉回到「全部自制」
+  const { [recipeId]: _mid, ...midSelf } = settings.value.midSelf
+  tracker.setCraft({ times, foodCount, foodSelf, midSelf })
+}
+
+function setMidSelf(recipeId: string, itemId: string, count: number | null) {
+  const all = { ...settings.value.midSelf }
+  const inner = { ...(all[recipeId] ?? {}) }
+  if (count === null) delete inner[itemId]
+  else inner[itemId] = Math.max(0, Math.floor(count))
+  if (Object.keys(inner).length) all[recipeId] = inner
+  else delete all[recipeId]
+  tracker.setCraft({ midSelf: all })
 }
 
 function setYield(recipeId: string, itemId: string, value: number | null) {
@@ -583,10 +707,16 @@ function setVigorFood(recipeId: string, key: string) {
 
 function setSource(itemId: string, source: CraftPriceSource) {
   const next = { ...settings.value.source }
-  // 缺省即交易行，只记录改成自定义的
-  if (source === 'manual') next[itemId] = source
+  // 缺省即交易行，只记录改成自定义 / 配方的
+  if (source === 'manual' || source === 'craft') next[itemId] = source
   else delete next[itemId]
-  tracker.setCraft({ source: next })
+  // 切换取价方式后，各配方里手填的「自制 N 个」作废，回到默认（全部自制）
+  const midSelf: CraftSettings['midSelf'] = {}
+  for (const [rid, inner] of Object.entries(settings.value.midSelf)) {
+    const { [itemId]: _drop, ...rest } = inner
+    if (Object.keys(rest).length) midSelf[rid] = rest
+  }
+  tracker.setCraft({ source: next, midSelf })
 }
 
 function setManual(itemId: string, gold: number | null) {
@@ -614,9 +744,24 @@ watch(
   { immediate: true }
 )
 
-const midPrices = computed(() =>
-  (MIDS[activeProf.value] ?? []).map((id) => ({ id, name: ITEMS[id]?.name ?? id, unit: priceOf(id, ctx.value) }))
-)
+const midOpen = ref(false)
+/** 抽屉里放中间件行的 tbody；抽屉关闭时为 null，中间件行就不渲染 */
+const midTbody = ref<HTMLElement | null>(null)
+watch(activeProf, () => { midOpen.value = false })
+
+/** 外面只留简要信息：中间件个数 */
+const midSummary = computed(() => {
+  if (isFavTab.value) return null
+  const total = rows.value.filter((r) => MID_IDS.has(r.recipe.outs[0]?.[0])).length
+  return total ? { total } : null
+})
+
+/** 中间件条上的名称和交易行价（固定交易行价，方便和自制成本对比） */
+function midInfo(row: RecipeResult) {
+  const id = row.recipe.outs[0][0]
+  const a = auction.value[id]
+  return { name: ITEMS[id]?.name ?? id, price: a ? a.price : null, updatedAt: a?.updatedAt }
+}
 
 // ─── 固定头部 ────────────────────────────────────────────────
 // 表头要贴在固定区块下面，而固定区块高度会变（中间件价格条可能换行），所以实时量
@@ -634,8 +779,10 @@ onBeforeUnmount(() => stickyObserver?.disconnect())
 // ─── 显示辅助 ────────────────────────────────────────────────
 /** 「·精」是小概率出的精品，用和补精力标签一样的橙色突出 */
 const REFINED_COLOR = '#f0a020'
-function nameColor(itemId: string): string | undefined {
-  return ITEMS[itemId]?.name.endsWith('·精') ? REFINED_COLOR : qualityColor(itemId)
+/** 非主产物且单次期望低于这个值，算「低期望」（如 4% 出的高档宴席），同样标橙 */
+const LOW_EXPECT = 0.5
+function nameColor(itemId: string, lowExpect = false): string | undefined {
+  return lowExpect || ITEMS[itemId]?.name.endsWith('·精') ? REFINED_COLOR : qualityColor(itemId)
 }
 
 function effectOf(itemId?: string): string {
@@ -878,7 +1025,6 @@ const round2 = (n: number) => Math.round(n * 100) / 100
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin: 12px 0 4px;
 }
 .cp-yield {
   display: inline-flex;
@@ -887,6 +1033,42 @@ const round2 = (n: number) => Math.round(n * 100) / 100
 }
 .cp-yield-custom :deep(input) {
   color: #2080f0;
+  font-weight: 600;
+}
+.cp-mid-clickable {
+  cursor: pointer;
+}
+.cp-mid-clickable:hover,
+.cp-mid.open {
+  border-color: #18a058;
+}
+.cp-mid-self {
+  margin-top: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.cp-mid-self-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+.cp-mid-k {
+  font-size: 12px;
+  color: #8a96a3;
+}
+.cp-mids-label {
+  margin: 8px 0 6px;
+  font-size: 12px;
+  color: #8a96a3;
+}
+.cp-mids-row > td {
+  display: table-cell;
+}
+.cp-mids-row > td > * {
+  margin-right: 12px;
+}
+.cp-mids-title {
   font-weight: 600;
 }
 .cp-mid {

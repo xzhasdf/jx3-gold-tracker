@@ -220,7 +220,7 @@ useLineChart(chartRef, chartOption)
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 8px;
   margin-bottom: 10px;
 }

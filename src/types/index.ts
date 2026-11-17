@@ -114,12 +114,12 @@ export interface Season {
 }
 
 /** 取价方式：默认交易行，可改自定义单价（NPC 商店有售的材料固定用 NPC 价，不可选） */
-export type CraftPriceSource = 'auction' | 'manual'
+export type CraftPriceSource = 'auction' | 'manual' | 'craft'
 
 export interface CraftSettings {
   /** 每个配方里各材料的自备数量（制作次数合计）：recipeId → itemId → 数量；自备部分不计成本 */
   owned: Record<string, Record<string, number>>
-  /** 物品取价方式（全局，跨配方共用）：itemId → 方式；只存 manual，缺省即交易行 */
+  /** 物品取价方式（全局，跨配方共用）：itemId → 方式；只存 manual / craft（craft 仅中间件：按配方材料费折算），缺省即交易行 */
   source: Record<string, CraftPriceSource>
   /** 自定义单价，单位：铜 */
   manual: Record<string, number>
@@ -131,6 +131,8 @@ export interface CraftSettings {
   foodCount: Record<string, number>
   /** 用几个自制的补精力食物（按材料费计价，不扣本次精力）：recipeId → 个数；缺省 0 */
   foodSelf: Record<string, number>
+  /** 「配方」取价的中间件，其中自己做几个（其余按交易行价买）：recipeId → itemId → 个数；缺省 = 需要买的全部自己做 */
+  midSelf: Record<string, Record<string, number>>
   /** 用户改过的单次期望产出：recipeId → 产物itemId → 件数；缺省按配方的概率 × 数量区间算 */
   yield: Record<string, Record<string, number>>
   /** 收藏的配方 id，按收藏先后排列；在「收藏」页签里集中查看 */
