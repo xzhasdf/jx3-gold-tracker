@@ -55,11 +55,15 @@ export type VigorFood = (typeof VIGOR_FOODS)[number]
 // 食物名 / 品质要能被 itemName、qualityColor 查到，配方数据里没有就补上
 for (const f of VIGOR_FOODS) ITEMS[f.id] ??= { name: f.name, q: f.q }
 
-const VIGOR_FOOD_IDS = new Set<string>(VIGOR_FOODS.map((f) => f.id))
+/** 资料片号 → 名称（JX3Box 的 nDlc）。打包脚本只收这些资料片的配方 */
+export const DLC_NAMES: Record<number, string> = { 8: '丝路风语', 9: '苍生铸世' }
 
-/** 梓匠配方在 JX3Box 里没有资料片标记，全部视为当前版本；转神餐 / 佛跳墙是老配方但一直在用，也算 */
+/**
+ * 是否算「当前版本」配方：最新资料片的，以及没标资料片的（漏标的新配方、中间件、补精力食物、梓匠）。
+ * 其余就是上个资料片（丝路风语）的配方，在页面上单独切换查看
+ */
 export function isCurrentRecipe(r: CraftRecipe): boolean {
-  return r.prof === '梓匠' || r.dlc === CURRENT_DLC || VIGOR_FOOD_IDS.has(r.outs[0]?.[0]) || MID_IDS.has(r.outs[0]?.[0])
+  return !r.dlc || r.dlc === CURRENT_DLC
 }
 
 export function itemName(id: string): string {
@@ -246,6 +250,13 @@ export interface RecipeResult {
    * 只有一种产物、或算不出利润时为 null
    */
   baseProfit: number | null
+  /** 单件收益 = 收益 / 期望件数（多种产物时是按件数平均） */
+  unitRevenue: number | null
+  /** 单件利润 = 利润 / 期望件数 */
+  unitProfit: number | null
+  /** 保底单件收益 / 利润：假设只出主产物，按主产物件数摊 */
+  baseUnitRevenue: number | null
+  baseUnitProfit: number | null
   vigor: number
   perVigor: number | null
   /** 保底每点精力利润 = 保底利润 / 精力；没有保底利润时为 null */
@@ -307,6 +318,9 @@ export function evaluateRecipe(r: CraftRecipe, ctx: PriceContext): RecipeResult 
   const expectedItems = outputs.reduce((s, o) => s + o.expected, 0)
   // 有小概率产物（·精、高价变体）就给保底利润，即只出主产物时的利润
   const baseProfit = profit === null || cost === null || outputs.length < 2 ? null : outputs[0].value! - cost
+  const baseRevenue = outputs.length < 2 || outputs[0].value === null ? null : outputs[0].value
+  const perItem = (v: number | null, n: number) => (v === null || n <= 0 ? null : v / n)
+  const mainCount = outputs[0]?.expected ?? 0
 
   return {
     recipe: r,
@@ -318,9 +332,13 @@ export function evaluateRecipe(r: CraftRecipe, ctx: PriceContext): RecipeResult 
     outputs,
     cost,
     revenue,
-    baseRevenue: outputs.length < 2 || outputs[0].value === null ? null : outputs[0].value,
+    baseRevenue,
     profit,
     baseProfit,
+    unitRevenue: perItem(revenue, expectedItems),
+    unitProfit: perItem(profit, expectedItems),
+    baseUnitRevenue: perItem(baseRevenue, mainCount),
+    baseUnitProfit: perItem(baseProfit, mainCount),
     vigor,
     perVigor: profit === null || vigor <= 0 ? null : profit / vigor,
     basePerVigor: baseProfit === null || vigor <= 0 ? null : baseProfit / vigor,

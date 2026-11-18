@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.3.4</span>
+          <span class="header-version">v1.3.5</span>
         </div>
         <div class="header-actions">
           <button
@@ -172,6 +172,18 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.3.5',
+    items: [
+      '技艺收益：列表改为按单件显示：单件成本、单件收益、单件利润（含保底），表头悬停说明注明是单件',
+      '技艺收益：每点精力利润补充悬停说明（按单件、单次、多次算结果相同）',
+      '技艺收益：材料表底部新增「合计」行，汇总所有材料小计',
+      '技艺收益：新增版本切换「当前版本（苍生铸世）/ 丝路风语」，未标资料片的配方归当前版本',
+      '技艺收益：补上 JX3Box 未标资料片的新配方（百炼水煮鱼、引元丹、回神丹、营地道具等 16 条）',
+      '技艺收益：丝路风语与苍生铸世都有的同款配方（熔锭、磨石）只保留苍生版本',
+      '技艺收益：收藏按钮放大',
+    ]
+  },
   {
     version: 'v1.3.4',
     items: [

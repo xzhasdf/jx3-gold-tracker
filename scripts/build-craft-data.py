@@ -6,6 +6,7 @@
 - 配方：node.jx3box.com/manufactures?type=<技艺>&ids=...（单次最多返回 20 条，只能按 ID 段批量拉）
 - 物品名：node.jx3box.com/item_merged/id/<id,id,...>
 - 只保留最近 MIN_DLC 及以后资料片的配方；梓匠（furniture）在 JX3Box 没有资料片标记，全部保留。
+- 漏标资料片的新配方按产物物品 ID 补（见 untagged_new）。
 """
 import json
 import os
@@ -17,6 +18,8 @@ from concurrent.futures import ThreadPoolExecutor
 PROFESSIONS = {'cooking': '烹饪', 'tailoring': '缝纫', 'founding': '铸造', 'medicine': '医术', 'furniture': '梓匠'}
 NO_DLC_TABS = {'furniture'}
 MIN_DLC = 8
+# 资料片配方名前缀：两个资料片都有的同款配方（如 风语·瀑沙熔锭 / 苍生·瀑沙熔锭）只留新资料片的
+DLC_PREFIXES = ('风语', '苍生')
 MAX_ID = 8000
 OUT = os.path.join(os.path.dirname(__file__), '..', 'src', 'modules', 'tools', 'craft', 'craftData.json')
 
@@ -145,9 +148,35 @@ def main():
 
     # 补精力食物（转神餐 / 佛跳墙）的配方是老配方，单独补进来，供「自制补精力」算成本
     vigor_food_ids = {'5_31013', '5_31012'}
+
+    # JX3Box 有些新配方漏标资料片（百炼水煮鱼、引元丹、营地道具等）。
+    # 按产物物品 ID 判断：比 MIN_DLC 之前所有资料片产物 ID 都大的，就是新资料片的东西
+    def out_index(r):
+        return int(r['outs'][0][0].split('_')[1]) if r['outs'] else 0
+    old_max = max(out_index(r) for r in all_recipes if 0 < r['dlc'] < MIN_DLC)
+
+    def untagged_new(r):
+        return r['dlc'] == 0 and r['id'].split('_')[0] not in NO_DLC_TABS and out_index(r) > old_max
+
     picked = [r for r in all_recipes
-              if r['dlc'] >= MIN_DLC or r['id'].split('_')[0] in NO_DLC_TABS
+              if r['dlc'] >= MIN_DLC or r['id'].split('_')[0] in NO_DLC_TABS or untagged_new(r)
               or (r['outs'] and r['outs'][0][0] in vigor_food_ids)]
+    print(f'未标资料片、按物品 ID（> {old_max}）补进来：', ' '.join(r['name'] for r in picked if untagged_new(r)))
+
+    # 同技艺里去掉资料片前缀和括号属性后同名的，只保留资料片号最大的那条
+    def stem(name):
+        name = re.sub(r'^(%s)·' % '|'.join(DLC_PREFIXES), '', name)
+        return re.sub(r'（.*?）', '', name)
+    newest = {}
+    for r in picked:
+        if r['dlc']:
+            k = (r['prof'], stem(r['name']))
+            newest[k] = max(newest.get(k, 0), r['dlc'])
+    dropped = [r for r in picked if r['dlc'] and r['dlc'] < newest[(r['prof'], stem(r['name']))]]
+    if dropped:
+        print('被新资料片同款替换：', ' '.join(r['name'] for r in dropped))
+    drop_ids = {r['id'] for r in dropped}
+    picked = [r for r in picked if r['id'] not in drop_ids]
 
     recipes = sorted(picked, key=lambda r: (r['prof'], -r['dlc'], r['id']))
 

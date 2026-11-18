@@ -24,8 +24,12 @@
 
       <div class="cp-add">
         <n-input v-model:value="keyword" clearable size="small" :placeholder="`按名称筛选${activeProf}配方`" style="width: 260px" />
+        <n-radio-group v-if="!isFavTab && activeProf !== '梓匠'" v-model:value="dlcView" size="small">
+          <n-radio value="current" :label="`当前版本（${DLC_NAMES[CURRENT_DLC] ?? ''}）`" />
+          <n-radio value="old" :label="OLD_DLC_LABEL" />
+        </n-radio-group>
         <span v-if="isFavTab" class="cp-muted">共收藏 {{ listedCount }} 条配方</span>
-        <span v-else class="cp-muted">{{ activeProf }}共 {{ listedCount }} 条{{ activeProf === '梓匠' ? '' : '当前版本' }}配方</span>
+        <span v-else class="cp-muted">{{ activeProf }}共 {{ listedCount }} 条{{ activeProf === '梓匠' ? '' : dlcView === 'old' ? OLD_DLC_LABEL : '当前版本' }}配方</span>
       </div>
       </div>
 
@@ -36,25 +40,32 @@
           <tr>
             <th class="cp-col-name">配方</th>
             <th v-for="col in SORT_COLS" :key="col.key" class="cp-num cp-sortable" @click="toggleSort(col.key)">
-              {{ col.label }}<n-tooltip v-if="col.key === 'revenue'" :delay="100" placement="bottom">
+              {{ col.label }}<n-tooltip v-if="col.key === 'unitRevenue'" :delay="100" placement="bottom">
                 <template #trigger><span class="cp-help" @click.stop>?</span></template>
+                <div class="cp-help-title">本列为单件（每 1 个产物）的收益</div>
                 <div>收益 = 交易行售出实际可获得金额（已扣 5% 手续费）</div>
-                <div>综合收益 = 各产物按出现概率加权的期望收益 = Σ（产物单价 × 单次期望 × 制作次数 × 95%）</div>
-                <div class="cp-help-sub">单次期望 = 出现概率 ×（最少 + 最多）÷ 2；95% 为扣除交易行手续费</div>
-                <div>保底 = 只算主产物（概率最高的那件）的收益，不算【精】等小概率产物</div>
-              </n-tooltip><n-tooltip v-else-if="col.key === 'profit'" :delay="100" placement="bottom">
+                <div>单件收益 = 各产物期望收益合计 ÷ 期望件数 = Σ（产物单价 × 单次期望 × 95%）÷ Σ 单次期望</div>
+                <div class="cp-help-sub">单次期望 = 出现概率 ×（最少 + 最多）÷ 2</div>
+                <div>保底 = 只算主产物（概率最高的那件），不算【精】等小概率产物</div>
+              </n-tooltip><n-tooltip v-else-if="col.key === 'unitProfit'" :delay="100" placement="bottom">
                 <template #trigger><span class="cp-help" @click.stop>?</span></template>
-                <div>综合利润 = Σ（产物单价 × 单次期望 × 制作次数 × 95%）− 成本</div>
-                <div class="cp-help-sub">单次期望 = 出现概率 ×（最少 + 最多）÷ 2，可在展开面板里改；95% 为扣除交易行手续费</div>
-                <div>保底 = 主产物单价 × 单次期望 × 制作次数 × 95% − 成本（不算【精】等小概率产物）</div>
+                <div class="cp-help-title">本列为单件（每 1 个产物）的利润</div>
+                <div>单件利润 = 单件收益 − 单件成本</div>
+                <div class="cp-help-sub">单次期望 = 出现概率 ×（最少 + 最多）÷ 2，可在展开面板里改</div>
+                <div>保底 = 假设只出主产物：主产物单价 × 95% − 成本 ÷ 主产物件数（不算【精】等小概率产物）</div>
                 <div>部分缺价：有小概率产物没有交易行报价，按 0 计入，期望利润可能偏低</div>
+              </n-tooltip><n-tooltip v-else-if="col.key === 'perVigor'" :delay="100" placement="bottom">
+                <template #trigger><span class="cp-help" @click.stop>?</span></template>
+                <div>每点精力利润 = 单件利润 ÷ 单件精力 = 总利润 ÷ 总精力</div>
+                <div class="cp-help-sub">按单件、单次还是多次合计算，结果都一样</div>
+                <div>保底 = 假设只出主产物时的每点精力利润</div>
               </n-tooltip><span class="cp-sort">{{ sortKey === col.key ? (sortDesc ? '▼' : '▲') : '' }}</span>
             </th>
           </tr>
         </thead>
         <tbody>
             <tr v-if="midSummary" class="cp-mids-row">
-              <td colspan="7">
+              <td colspan="6">
                 <span class="cp-mids-title">中间件 {{ midSummary.total }} 个</span>
                 <n-button size="tiny" secondary type="primary" @click="midOpen = true">查看 / 编辑中间件配方</n-button>
                 <span class="cp-muted">取价选「配方」时按自制成本算</span>
@@ -114,15 +125,16 @@
                 <div v-if="effectOf(row.recipe.outs[0]?.[0])" class="cp-fx" :title="effectOf(row.recipe.outs[0]?.[0])">{{ effectOf(row.recipe.outs[0]?.[0]) }}</div>
               </td>
               <td class="cp-num">{{ round1(row.vigor) }}</td>
-              <td class="cp-num"><CraftMoney v-if="row.cost !== null" :value="row.cost" /><span v-else class="cp-missing">缺价</span></td>
-              <td class="cp-num"><CraftMoney v-if="row.unitCost !== null" :value="row.unitCost" /><span v-else>—</span></td>
               <td class="cp-num">
-                <CraftMoney v-if="row.revenue !== null" :value="row.revenue" /><span v-else class="cp-missing">无报价</span>
-                <div v-if="row.baseRevenue !== null" class="cp-subline">保底 <CraftMoney :value="row.baseRevenue" /></div>
+                <CraftMoney v-if="row.unitCost !== null" :value="row.unitCost" /><span v-else-if="row.cost === null" class="cp-missing">缺价</span><span v-else>—</span>
               </td>
-              <td class="cp-num" :class="profitClass(row.profit)">
-                <CraftMoney v-if="row.profit !== null" :value="row.profit" /><span v-else>—</span>
-                <div v-if="row.baseProfit !== null" class="cp-subline" :class="profitClass(row.baseProfit)">保底 <CraftMoney :value="row.baseProfit" /></div>
+              <td class="cp-num">
+                <CraftMoney v-if="row.unitRevenue !== null" :value="row.unitRevenue" /><span v-else class="cp-missing">无报价</span>
+                <div v-if="row.baseUnitRevenue !== null" class="cp-subline">保底 <CraftMoney :value="row.baseUnitRevenue" /></div>
+              </td>
+              <td class="cp-num" :class="profitClass(row.unitProfit)">
+                <CraftMoney v-if="row.unitProfit !== null" :value="row.unitProfit" /><span v-else>—</span>
+                <div v-if="row.baseUnitProfit !== null" class="cp-subline" :class="profitClass(row.baseUnitProfit)">保底 <CraftMoney :value="row.baseUnitProfit" /></div>
                 <div v-if="row.partialOutputs" class="cp-subline cp-partial">部分缺价</div>
               </td>
               <td class="cp-num cp-strong" :class="profitClass(row.perVigor)"><CraftMoney v-if="row.perVigor !== null" :value="row.perVigor" /><span v-else>—</span>
@@ -130,7 +142,7 @@
               </td>
             </tr>
             <tr v-if="expanded === row.recipe.id" class="cp-detail-row">
-              <td colspan="7">
+              <td colspan="6">
                 <div class="cp-detail">
                   <div class="cp-detail-head">
                     <span>材料</span>
@@ -340,6 +352,18 @@
                         </tr>
                       </template>
                     </tbody>
+                    <tfoot>
+                      <tr class="cp-total-row">
+                        <td colspan="5">
+                          合计
+                        </td>
+                        <td class="cp-num">
+                          <CraftMoney v-if="row.cost !== null" :value="row.cost" />
+                          <span v-else class="cp-missing">缺价</span>
+                        </td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
                   </table>
 
                   <div class="cp-detail-head">
@@ -459,6 +483,8 @@ import {
   RECIPE_MAP,
   collectPriceIds,
   isCurrentRecipe,
+  DLC_NAMES,
+  CURRENT_DLC,
   VIGOR_FOODS,
   MIDS,
   MID_IDS,
@@ -492,11 +518,18 @@ const favoriteSet = computed(() => new Set(settings.value.favorites))
 const activeProf = ref<string>(favoriteIds.value.length ? FAV_TAB : PROFESSIONS[0])
 const isFavTab = computed(() => activeProf.value === FAV_TAB)
 const keyword = ref('')
-/** 当前 Tab 的全部配方：当前版本（梓匠无资料片标记，全部）；收藏页签不限版本 */
+/** 当前版本 / 上个资料片 切换；梓匠没有资料片标记，不受影响 */
+const dlcView = ref<'current' | 'old'>('current')
+const OLD_DLC_LABEL = DLC_NAMES[CURRENT_DLC - 1] ?? '上个资料片'
+/** 当前 Tab 的全部配方；中间件两边都显示（旧配方也用它们，「配方」取价要靠中间件配方）；收藏页签不限版本 */
 const recipesOfProf = computed(() =>
   isFavTab.value
     ? favoriteIds.value.map((id) => RECIPE_MAP.get(id)!)
-    : RECIPES.filter((r) => r.prof === activeProf.value && isCurrentRecipe(r))
+    : RECIPES.filter(
+        (r) =>
+          r.prof === activeProf.value &&
+          (MID_IDS.has(r.outs[0]?.[0]) || isCurrentRecipe(r) === (dlcView.value === 'current'))
+      )
 )
 
 function toggleFavorite(recipeId: string) {
@@ -551,13 +584,12 @@ const ctx = computed<PriceContext>(() => ({ settings: settings.value, auction: a
 // 只算当前 Tab 的配方
 const rows = computed<RecipeResult[]>(() => recipesOfProf.value.map((r) => evaluateRecipe(r, ctx.value)))
 
-type SortKey = 'vigor' | 'cost' | 'unitCost' | 'revenue' | 'profit' | 'perVigor'
+type SortKey = 'vigor' | 'unitCost' | 'unitRevenue' | 'unitProfit' | 'perVigor'
 const SORT_COLS: Array<{ key: SortKey; label: string }> = [
   { key: 'vigor', label: '精力' },
-  { key: 'cost', label: '成本' },
   { key: 'unitCost', label: '单件成本' },
-  { key: 'revenue', label: '综合收益' },
-  { key: 'profit', label: '综合利润' },
+  { key: 'unitRevenue', label: '单件收益' },
+  { key: 'unitProfit', label: '单件利润' },
   { key: 'perVigor', label: '每点精力利润' }
 ]
 const sortKey = ref<SortKey>('perVigor')
@@ -728,8 +760,8 @@ function setManual(itemId: string, gold: number | null) {
 
 // 放在 order / sortKey 等声明之后：immediate 回调会调 resort()
 watch(
-  // 切到哪个技艺 Tab 才查哪个 Tab 的价格
-  () => activeProf.value,
+  // 切到哪个技艺 Tab / 版本才查对应配方的价格
+  () => [activeProf.value, dlcView.value],
   async () => {
     const server = await window.electronAPI?.getGoldServer()
     if (server && server.serverName !== serverName.value) {
@@ -976,7 +1008,10 @@ const round2 = (n: number) => Math.round(n * 100) / 100
 }
 .cp-star {
   display: inline-block;
-  width: 16px;
+  width: 21px;
+  font-size: 17px;
+  line-height: 1;
+  vertical-align: -2px;
   margin-right: 2px;
   color: #c2c8cf;
   cursor: pointer;
@@ -1131,6 +1166,16 @@ const round2 = (n: number) => Math.round(n * 100) / 100
   background: #fafbfc;
   padding: 4px 16px 12px;
   box-shadow: 0 2px 8px rgba(31, 45, 61, 0.06);
+}
+.cp-total-row td {
+  border-top: 1px solid #dfe5ec;
+  padding-top: 6px !important;
+  font-weight: 600;
+  color: #2c3a47;
+}
+.cp-help-title {
+  font-weight: 600;
+  margin-bottom: 2px;
 }
 .cp-detail-head {
   display: flex;
