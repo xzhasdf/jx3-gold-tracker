@@ -1342,7 +1342,7 @@ async function exportPlan() {
         title: `${r.recipe.name}（${r.recipe.prof}）　${how}${vigor}`,
         rows: [
           ...solo.materials.map((m): XCell[] => ['材料', nameCell(m.id, m.name), { v: m.total, bold: true }, via(m)]),
-          ...solo.crafts.map((c): XCell[] => [kindCell(c.kind), c.name, { v: c.crafts, bold: true }, `需要 ${c.need}，做 ${c.crafts} 次：${c.mats.map((m) => `${m.name}×${m.qty}`).join('、')}`])
+          ...solo.crafts.map((c): XCell[] => [kindCell(c.kind), c.name, { v: c.need, bold: true }, `做 ${c.crafts} 次：${c.mats.map((m) => `${m.name}×${m.qty}`).join('、')}`])
         ]
       })
     }
@@ -1379,7 +1379,7 @@ async function exportPlan() {
       const pad = (cells: unknown[]) => [...cells, ...Array.from({ length: COLS - cells.length }, () => xCell('', {}))]
       const aoa: unknown[][] = [
         [fillCell(b.title), ...Array.from({ length: COLS - 1 }, () => fillCell(''))],
-        pad(['名称', '数量 / 次数', '类别', '说明'].map((h) => xCell(h, { header: true }))),
+        pad(['名称', '数量', '类别', '说明'].map((h) => xCell(h, { header: true }))),
         // 名称、数量、类别、说明：说明合并到最右，长文字不会被截断
         ...b.rows.map((r, j) => pad([r[1], r[2], r[0], r[3]].map((c) => xCell(c, { zebra: j % 2 === 1 }))))
       ]
