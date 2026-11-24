@@ -1357,7 +1357,7 @@ async function exportPlan() {
     const COLS = matsT.headers.length
     const fillCell = (v: string) => xCell({ v, bold: true, fill: 'E8EEF9' }, {})
     const wb = XLSX.utils.book_new()
-    const ws = xSheet(matsT.headers, matsT.rows, { widths: matsT.widths, moneyCols: hasOwn ? [7, 8] : [6, 7], totalLast: true })
+    const ws = xSheet(matsT.headers, matsT.rows, { widths: matsT.widths, moneyCols: hasOwn ? [8, 9] : [6, 7], totalLast: true })
     const merges: Array<{ s: { r: number; c: number }; e: { r: number; c: number } }> = [...(ws['!merges'] ?? [])]
     let row = matsT.rows.length + 2 // 表头 + 数据行，再空一行
 
