@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.4.0</span>
+          <span class="header-version">v1.4.1</span>
         </div>
         <div class="header-actions">
           <button
@@ -172,6 +172,13 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.4.1',
+    items: [
+      '技艺收益：材料清单的「中间件 / 精力药」新增「自备」列，自备的个数不用做，制作次数、材料、精力都按剩余个数算，Excel 导出同步多一列',
+      '修复：页眉版本号与更新日志漏更新 1.4.0',
+    ]
+  },
   {
     version: 'v1.4.0',
     items: [
