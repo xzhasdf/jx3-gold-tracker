@@ -478,7 +478,7 @@
 
       <n-drawer v-model:show="planOpen" :width="900" placement="right">
         <n-drawer-content title="材料清单" closable>
-          <div v-if="!plan.recipes.length" class="cp-empty">先在配方列表里勾选要做的配方</div>
+          <div v-if="!selectedIds.length" class="cp-empty">先在配方列表里勾选要做的配方</div>
           <template v-else>
             <div class="cp-muted cp-plan-temp">这里的修改都是临时的，关闭后恢复默认，不会改动配方里的设置</div>
             <div class="cp-plan-cards">
@@ -510,16 +510,22 @@
             <table class="cp-table cp-plan-table">
               <thead><tr><th>配方</th><th>制作方式</th><th class="cp-num">数量 / 次数</th><th class="cp-num">折合</th><th v-if="planFoodOn" class="cp-num">精力</th><th v-if="planFoodOn" class="cp-center">计入精力</th><th></th></tr></thead>
               <tbody>
-                <tr v-for="r in plan.recipes" :key="r.recipe.id">
-                  <td><span :style="{ color: qualityColor(r.recipe.outs[0]?.[0]) }">{{ r.recipe.name }}</span> <n-tag size="tiny" :bordered="false">{{ r.recipe.prof }}</n-tag></td>
+                <tr v-for="row in planRows" :key="row.id" :class="{ 'cp-plan-ignored': !row.line }">
+                  <template v-if="!row.line">
+                    <td><span :style="{ color: qualityColor(row.recipe.outs[0]?.[0]) }">{{ row.recipe.name }}</span> <n-tag size="tiny" :bordered="false">{{ row.recipe.prof }}</n-tag></td>
+                    <td :colspan="planFoodOn ? 5 : 3" class="cp-muted">已忽略，不参与计算</td>
+                    <td class="cp-num cp-plan-acts"><n-button size="tiny" quaternary type="primary" @click="setIgnored(row.id, false)">取消忽略</n-button><n-button size="tiny" quaternary @click="toggleSelected(row.id, false)">移除</n-button></td>
+                  </template>
+                  <template v-else-if="row.line">
+                  <td><span :style="{ color: qualityColor(row.line.recipe.outs[0]?.[0]) }">{{ row.line.recipe.name }}</span> <n-tag size="tiny" :bordered="false">{{ row.line.recipe.prof }}</n-tag></td>
                   <td>
                     <div class="cp-plan-mode">
-                      <n-radio-group :value="r.qty === undefined ? 'times' : 'qty'" size="small" @update:value="(v: string) => setPlanMode(r, v === 'qty')">
+                      <n-radio-group :value="row.line!.qty === undefined ? 'times' : 'qty'" size="small" @update:value="(v: string) => setPlanMode(row.line!, v === 'qty')">
                         <n-radio-button value="times" label="按次数" />
                         <n-radio-button value="qty" label="按数量" />
                       </n-radio-group>
                       <!-- 按数量时才需要：单次产出按保底还是期望折算次数 -->
-                      <n-radio-group v-if="r.qty !== undefined" :value="r.qtyYield" size="small" @update:value="(v: PlanYieldMode) => setPlanQtyYield(r.recipe.id, v)">
+                      <n-radio-group v-if="row.line!.qty !== undefined" :value="row.line!.qtyYield" size="small" @update:value="(v: PlanYieldMode) => setPlanQtyYield(row.line!.recipe.id, v)">
                         <n-radio-button value="min" label="保底" />
                         <n-radio-button value="expected" label="期望" />
                       </n-radio-group>
@@ -528,36 +534,37 @@
                   <td class="cp-num">
                     <div class="cp-plan-qty">
                       <n-input-number
-                        v-if="r.qty === undefined"
-                        :value="r.times"
+                        v-if="row.line.qty === undefined"
+                        :value="row.line.times"
                         size="tiny"
                         :min="1"
                         :precision="0"
                         style="width: 110px"
-                        @update:value="(v: number | null) => setPlanTimes(r.recipe.id, v ?? 1)"
+                        @update:value="(v: number | null) => setPlanTimes(row.line!.recipe.id, v ?? 1)"
                       />
                       <n-input-number
                         v-else
-                        :value="r.qty"
+                        :value="row.line.qty"
                         size="tiny"
                         :min="1"
                         :precision="0"
                         style="width: 110px"
-                        @update:value="(v: number | null) => setPlanQty(r.recipe.id, v ?? 1)"
+                        @update:value="(v: number | null) => setPlanQty(row.line!.recipe.id, v ?? 1)"
                       >
                         <template #suffix>件</template>
                       </n-input-number>
                     </div>
                   </td>
                   <td class="cp-num cp-muted">
-                    <div v-if="r.qty !== undefined">做 {{ r.times }} 次（{{ r.qtyYield === 'expected' ? '期望' : '保底' }}每次 {{ round2(r.perCraft ?? 0) }} 件）</div>
+                    <div v-if="row.line.qty !== undefined">做 {{ row.line.times }} 次（{{ row.line.qtyYield === 'expected' ? '期望' : '保底' }}每次 {{ round2(row.line.perCraft ?? 0) }} 件）</div>
                     <!-- 按数量选保底时，主产物件数就是填的数量，不再重复写；只提示可能多出的精 -->
-                    <div v-if="!(r.qty !== undefined && r.qtyYield !== 'expected')">产出约 {{ round1(r.expectedOuts[0]?.qty ?? 0) }} 件</div>
-                    <div v-for="o in r.expectedOuts.slice(1)" :key="o.id">【{{ shortOutName(o.name) }}】约 {{ round1(o.qty) }} 件</div>
+                    <div v-if="!(row.line.qty !== undefined && row.line.qtyYield !== 'expected')">产出约 {{ round1(row.line.expectedOuts[0]?.qty ?? 0) }} 件</div>
+                    <div v-for="o in row.line.expectedOuts.slice(1)" :key="o.id">【{{ shortOutName(o.name) }}】约 {{ round1(o.qty) }} 件</div>
                   </td>
-                  <td v-if="planFoodOn" class="cp-num">{{ round1(r.vigor) }}</td>
-                  <td v-if="planFoodOn" class="cp-center"><n-checkbox size="small" :checked="!noVigorIds.has(r.recipe.id)" @update:checked="(v: boolean) => setCountVigor(r.recipe.id, v)" /></td>
-                  <td class="cp-num"><n-button size="tiny" quaternary @click="toggleSelected(r.recipe.id, false)">移除</n-button></td>
+                  <td v-if="planFoodOn" class="cp-num">{{ round1(row.line.vigor) }}</td>
+                  <td v-if="planFoodOn" class="cp-center"><n-checkbox size="small" :checked="!noVigorIds.has(row.line!.recipe.id)" @update:checked="(v: boolean) => setCountVigor(row.line!.recipe.id, v)" /></td>
+                  <td class="cp-num cp-plan-acts"><n-button size="tiny" quaternary @click="setIgnored(row.id, true)">忽略</n-button><n-button size="tiny" quaternary @click="toggleSelected(row.id, false)">移除</n-button></td>
+                  </template>
                 </tr>
               </tbody>
             </table>
@@ -610,7 +617,7 @@
                   <th v-if="showCol.direct" class="cp-num">配方直接用</th>
                   <th v-if="showCol.mid" class="cp-num">中间件用</th>
                   <th v-if="showCol.food" class="cp-num">精力药用</th>
-                  <th class="cp-plan-src-col">取价</th><th v-if="showCol.owned" class="cp-num cp-plan-own-col">自备数量</th><th class="cp-num">单价</th><th class="cp-num">小计</th>
+                  <th class="cp-plan-src-col">取价<n-button v-if="ownableMats.length" text size="tiny" type="primary" class="cp-all-own" @click="setAllMatOwn(!allMatsOwn)">{{ allMatsOwn ? '清空自备' : '全自备' }}</n-button></th><th v-if="showCol.owned" class="cp-num cp-plan-own-col">自备数量</th><th class="cp-num">单价</th><th class="cp-num">小计</th>
                 </tr>
               </thead>
               <tbody>
@@ -645,6 +652,7 @@
                       style="width: 76px"
                       @update:value="(v: number | null) => setMatOwned(m.id, v ?? 0)"
                     />
+                    <div v-if="m.isOwn && m.owned < m.total" class="cp-own-short">差 {{ m.total - m.owned }} 件</div>
                   </td>
                   <td class="cp-num"><CraftMoney v-if="m.unit.price !== null" :value="m.unit.price" /><span v-else class="cp-missing">{{ loading ? '加载中' : '无报价' }}</span></td>
                   <td class="cp-num"><CraftMoney v-if="m.subtotal !== null" :value="m.subtotal" /><span v-else>—</span></td>
@@ -683,7 +691,7 @@
                     <td class="cp-num">{{ round1(c.produced) }}</td>
                     <td v-if="planFoodOn" class="cp-num" :class="{ 'cp-muted': c.kind === 'mid' && planIgnoreMid }">{{ round1(c.vigor) }}</td>
                     <td class="cp-plan-mats">
-                      <span v-for="m in c.mats" :key="m.id" class="cp-plan-mat">{{ m.name }}<b>×{{ m.qty }}</b></span>
+                      <span v-for="m in c.mats" :key="m.id" class="cp-plan-mat"><span :style="{ color: qualityColor(m.id) }">{{ m.name }}</span><b>×{{ m.qty }}</b></span>
                     </td>
                   </tr>
                 </tbody>
@@ -1089,6 +1097,14 @@ const selectedIds = ref<string[]>([])
 const selectedSet = computed(() => new Set(selectedIds.value))
 /** 不计入精力的配方（咸骨粥这类不想算进精力药的） */
 const noVigorIds = ref<Set<string>>(new Set())
+/** 清单里被忽略的配方：不参与计算，相当于没选，但随时能加回来；和列表里的勾选无关 */
+const ignoredIds = ref<Set<string>>(new Set())
+function setIgnored(id: string, on: boolean) {
+  const next = new Set(ignoredIds.value)
+  if (on) next.add(id)
+  else next.delete(id)
+  ignoredIds.value = next
+}
 const planOpen = ref(false)
 const planFoodOn = ref(false)
 const planFoodKey = ref<string>(VIGOR_FOODS[0].key)
@@ -1135,6 +1151,7 @@ function resetPlanTemp() {
   planQtyYield.value = {}
   planOwned.value = {}
   planOwnedCraft.value = {}
+  ignoredIds.value = new Set()
   noVigorIds.value = new Set()
   planFoodOn.value = false
   planFoodKey.value = VIGOR_FOODS[0].key
@@ -1157,6 +1174,17 @@ function setMatOwn(id: string, own: boolean, total: number) {
 }
 function setCraftOwned(key: string, qty: number) {
   planOwnedCraft.value = { ...planOwnedCraft.value, [key]: Math.max(0, Math.floor(qty)) }
+}
+/** 能自备的材料（NPC 有售的不支持）：一键全自备 / 清空 */
+const ownableMats = computed(() => plan.value.materials.filter((m) => m.unit.via !== 'npc'))
+const allMatsOwn = computed(() => ownableMats.value.length > 0 && ownableMats.value.every((m) => m.isOwn && m.owned >= m.total))
+function setAllMatOwn(own: boolean) {
+  const next = { ...planOwned.value }
+  for (const m of ownableMats.value) {
+    if (own) next[m.id] = m.total
+    else delete next[m.id]
+  }
+  planOwned.value = next
 }
 function setMatOwned(id: string, qty: number) {
   planOwned.value = { ...planOwned.value, [id]: Math.max(0, Math.floor(qty)) }
@@ -1191,20 +1219,24 @@ function setCountVigor(id: string, count: boolean) {
   noVigorIds.value = next
 }
 
-const plan = computed(() =>
-  planMaterials(
-    selectedIds.value.map((recipeId) => ({ recipeId, times: planTimes.value[recipeId], countVigor: !noVigorIds.value.has(recipeId), qty: planQty.value[recipeId], qtyYield: planQtyYield.value[recipeId] })),
-    {
-      food: planFoodOn.value ? VIGOR_FOODS.find((f) => f.key === planFoodKey.value) ?? null : null,
-      foodSource: planFoodSource.value,
-      ignoreMidVigor: planIgnoreMid.value,
-      yieldMode: planYieldMode.value,
-      foodYieldMode: planFoodYield.value,
-      owned: planOwned.value,
-      ownedCraft: planOwnedCraft.value
-    },
-    ctx.value
-  )
+const planEntry = (recipeId: string) => ({ recipeId, times: planTimes.value[recipeId], countVigor: !noVigorIds.value.has(recipeId), qty: planQty.value[recipeId], qtyYield: planQtyYield.value[recipeId] })
+const planOpts = computed(() => ({
+  food: planFoodOn.value ? VIGOR_FOODS.find((f) => f.key === planFoodKey.value) ?? null : null,
+  foodSource: planFoodSource.value,
+  ignoreMidVigor: planIgnoreMid.value,
+  yieldMode: planYieldMode.value,
+  foodYieldMode: planFoodYield.value,
+  owned: planOwned.value,
+  ownedCraft: planOwnedCraft.value
+}))
+const plan = computed(() => planMaterials(selectedIds.value.filter((id) => !ignoredIds.value.has(id)).map(planEntry), planOpts.value, ctx.value))
+
+/** 清单里的配方行：按勾选顺序，被忽略的没有 line */
+const planRows = computed(() =>
+  selectedIds.value.flatMap((id) => {
+    const recipe = RECIPE_MAP.get(id)
+    return recipe ? [{ id, recipe, line: plan.value.recipes.find((r) => r.recipe.id === id) }] : []
+  })
 )
 
 // 打开清单（或清单打开时选择变了）就补查选中配方、精力药、中间件材料的价格
@@ -1226,7 +1258,7 @@ function xCell(c: XCell, opt: { header?: boolean; zebra?: boolean; total?: boole
   return {
     v: o.v,
     t: isNum ? 'n' : 's',
-    z: isNum ? o.fmt ?? (opt.num ? '#,##0.00' : '0') : undefined,
+    z: isNum ? o.fmt ?? (opt.num ? '#,##0.00##' : '0') : undefined,
     s: {
       font: { name: X_FONT, sz: 11, bold: opt.header || opt.total || o.bold || false, color: { rgb: opt.header ? 'FFFFFF' : o.color ?? '1F2937' } },
       fill: fill ? { patternType: 'solid', fgColor: { rgb: fill } } : undefined,
@@ -1262,71 +1294,103 @@ async function exportPlan() {
   exporting.value = true
   try {
     const p = plan.value
-    const gold = (copper: number | null): number | string => (copper === null ? '' : Math.round((copper / COPPER_PER_GOLD) * 100) / 100)
+    const gold = (copper: number | null): number | string => (copper === null ? '' : Math.round((copper / COPPER_PER_GOLD) * 10000) / 10000)
     const noPrice: XCell = { v: '无报价', color: 'D92D20', align: 'right' }
     const viaCell = (via: string): XCell => (via === 'npc' ? { v: VIA_LABEL[via], fill: 'E6F4EA', color: '1E7B3A', align: 'center' } : { v: VIA_LABEL[via] ?? via, align: 'center' })
 
     // 基础材料
+    const nameCell = (id: string, name: string): XCell => {
+      const c = qualityColor(id)
+      return c ? { v: name, color: c.slice(1).toUpperCase() } : name
+    }
     const mats: XCell[][] = p.materials.map((m) => [
-      m.name,
+      nameCell(m.id, m.name),
       { v: m.total, bold: true },
       m.direct || '',
       m.viaMid || '',
       m.viaFood || '',
       m.isOwn ? { v: '自备', fill: 'FFF4E5', color: 'B54708', align: 'center' } : viaCell(m.unit.via),
       m.isOwn ? m.owned : '',
+      m.isOwn && m.owned < m.total ? { v: m.total - m.owned, color: 'D92D20', bold: true } : '',
       m.unit.price === null ? noPrice : gold(m.unit.price),
       m.subtotal === null ? noPrice : gold(m.subtotal)
     ])
     if (p.food?.source === 'buy') {
-      mats.push([`${p.food.food.name}（精力药）`, { v: p.food.count, bold: true }, '', '', '', p.food.unit ? viaCell(p.food.unit.via) : '', '', p.food.unit?.price == null ? noPrice : gold(p.food.unit.price), p.food.cost === null ? noPrice : gold(p.food.cost)])
+      mats.push([`${p.food.food.name}（精力药）`, { v: p.food.count, bold: true }, '', '', '', p.food.unit ? viaCell(p.food.unit.via) : '', '', '', p.food.unit?.price == null ? noPrice : gold(p.food.unit.price), p.food.cost === null ? noPrice : gold(p.food.cost)])
     }
-    mats.push(['合计（自备材料不计）', '', '', '', '', '', '', '', p.cost === null ? { v: `缺价：${p.missing.join('、')}`, color: 'D92D20' } : gold(p.cost)])
+    mats.push(['合计（自备材料不计）', '', '', '', '', '', '', '', '', p.cost === null ? { v: `缺价：${p.missing.join('、')}`, color: 'D92D20' } : gold(p.cost)])
 
-    // 中间件 / 精力药
-    const crafts: XCell[][] = p.crafts.map((c) => [
-      c.kind === 'food' ? { v: '精力药', fill: 'FFF4E5', color: 'B54708', align: 'center' } : { v: '中间件', fill: 'E8F0FE', color: '1D4ED8', align: 'center' },
-      c.name,
-      c.need,
-      c.owned || '',
-      { v: c.crafts, bold: true },
-      round1(c.produced),
-      round1(c.vigor),
-      c.mats.map((m) => `${m.name}×${m.qty}`).join('、')
-    ])
-
-    // 已选配方 + 精力汇总
-    const recipes: XCell[][] = p.recipes.map((r) => [
-      r.recipe.name,
-      { v: r.recipe.prof, align: 'center' },
-      { v: r.qty === undefined ? '按次数' : `按数量（${r.qtyYield === 'expected' ? '期望' : '保底'}）`, align: 'center' },
-      r.qty === undefined ? r.times : { v: `${r.qty} 件`, align: 'right' },
-      r.times,
-      round1(r.vigor),
-      { v: noVigorIds.value.has(r.recipe.id) ? '否' : '是', align: 'center', color: noVigorIds.value.has(r.recipe.id) ? '98A2B3' : '1E7B3A' }
-    ])
-
-        // 不补精力时不输出精力相关列 / 汇总
+    // 不输出的列：没有自备材料时去掉「自备数量 / 差额」
     const dropCols = (headers: string[], rows: XCell[][], widths: number[], idx: number[]) => ({
       headers: headers.filter((_, i) => !idx.includes(i)),
       rows: rows.map((r) => r.filter((_, i) => !idx.includes(i))),
       widths: widths.filter((_, i) => !idx.includes(i))
     })
-    // 没有自备材料时不输出「自备数量」列
     const hasOwn = p.materials.some((m) => m.isOwn)
-    const matsT = dropCols(['材料', '合计', '配方直接用', '中间件用', '精力药用', '取价', '自备数量', '单价（金）', '小计（金）'], mats, [22, 10, 12, 10, 10, 10, 10, 14, 16], hasOwn ? [] : [6])
-    const craftsT = dropCols(['类型', '名称', '需要', '自备', '制作次数', '产出', '精力', '材料'], crafts, [10, 22, 8, 8, 10, 8, 8, 60], planFoodOn.value ? [] : [6])
-    const recipesT = dropCols(['配方', '技艺', '制作方式', '数量 / 次数', '制作次数', '精力', '计入精力'], recipes, [22, 8, 18, 12, 10, 8, 10], planFoodOn.value ? [] : [5, 6])
+    const matsT = dropCols(['材料', '合计', '配方直接用', '中间件用', '精力药用', '取价', '自备数量', '差额', '单价（金）', '小计（金）'], mats, [22, 10, 12, 10, 10, 10, 10, 8, 14, 16], hasOwn ? [] : [6, 7])
 
+    // 配方材料明细：每个配方、每种中间件 / 精力药各一张小表，叠在同一个工作表里
+    // 配方的小表单独算（中间件、自制精力药一并展开），不扣自备；中间件 / 精力药的小表是汇总后的实际用量，已扣自备
+    const kindCell = (kind: 'mid' | 'food'): XCell => (kind === 'food' ? { v: '精力药', fill: 'FFF4E5', color: 'B54708', align: 'center' } : { v: '中间件', fill: 'E8F0FE', color: '1D4ED8', align: 'center' })
+    const blocks: Array<{ title: string; rows: XCell[][] }> = []
+    for (const r of p.recipes) {
+      const solo = planMaterials([planEntry(r.recipe.id)], { ...planOpts.value, owned: {}, ownedCraft: {} }, ctx.value)
+      const via = (m: (typeof solo.materials)[number]) => [m.direct ? `配方 ${m.direct}` : '', m.viaMid ? `中间件 ${m.viaMid}` : '', m.viaFood ? `精力药 ${m.viaFood}` : ''].filter(Boolean).join(' / ')
+      const how = r.qty === undefined ? `按次数 ${r.times} 次` : `按数量 ${r.qty} 件（${r.qtyYield === 'expected' ? '期望' : '保底'}），做 ${r.times} 次`
+      const vigor = planFoodOn.value ? `　精力 ${round1(r.vigor)}${r.countVigor ? '' : '（不计入）'}` : ''
+      blocks.push({
+        title: `${r.recipe.name}（${r.recipe.prof}）　${how}${vigor}`,
+        rows: [
+          ...solo.materials.map((m): XCell[] => ['材料', nameCell(m.id, m.name), { v: m.total, bold: true }, via(m)]),
+          ...solo.crafts.map((c): XCell[] => [kindCell(c.kind), c.name, { v: c.crafts, bold: true }, `需要 ${c.need}，做 ${c.crafts} 次：${c.mats.map((m) => `${m.name}×${m.qty}`).join('、')}`])
+        ]
+      })
+    }
+    for (const c of p.crafts) {
+      blocks.push({
+        title: `${c.name}（${c.kind === 'food' ? '精力药' : '中间件'}）　需要 ${c.need}${c.owned ? `，自备 ${c.owned}` : ''}，做 ${c.crafts} 次，产出 ${round1(c.produced)}${planFoodOn.value ? `　精力 ${round1(c.vigor)}` : ''}`,
+        rows: c.mats.map((m): XCell[] => ['材料', nameCell(m.id, m.name), { v: m.qty, bold: true }, ''])
+      })
+    }
+    // 全部放在同一个工作表：基础材料表在最上面，下面接精力汇总和各张小表。
+    // 小表的列对齐到基础材料表的列宽：名称（材料列）、数量（合计列）、类别、说明（合并到最右）
+    const COLS = matsT.headers.length
+    const fillCell = (v: string) => xCell({ v, bold: true, fill: 'E8EEF9' }, {})
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, xSheet(matsT.headers, matsT.rows, { widths: matsT.widths, moneyCols: hasOwn ? [7, 8] : [6, 7], totalLast: true }), '基础材料')
-    if (crafts.length) XLSX.utils.book_append_sheet(wb, xSheet(craftsT.headers, craftsT.rows, { widths: craftsT.widths, wrapCols: [craftsT.headers.length - 1] }), '中间件与精力药')
-    const recipeSheet = xSheet(recipesT.headers, recipesT.rows, { widths: recipesT.widths })
-    // 精力汇总：接在配方表下面，隔一行
+    const ws = xSheet(matsT.headers, matsT.rows, { widths: matsT.widths, moneyCols: hasOwn ? [7, 8] : [6, 7], totalLast: true })
+    const merges: Array<{ s: { r: number; c: number }; e: { r: number; c: number } }> = [...(ws['!merges'] ?? [])]
+    let row = matsT.rows.length + 2 // 表头 + 数据行，再空一行
+
+    // 精力汇总
     const sum: Array<[string, string | number]> = !planFoodOn.value ? [] : [['精力：本体', round1(p.vigorBody)], [planIgnoreMid.value ? '精力：中间件（已忽略）' : '精力：中间件', planIgnoreMid.value ? round1(p.vigorMidIgnored) : round1(p.vigorMid)], ['精力：精力药制作', round1(p.vigorFood)], ['精力：总消耗', round1(p.vigorAll)]]
     if (planFoodOn.value && p.food) sum.push([`精力药：${p.food.food.name}`, `${p.food.count} 个（${p.food.source === 'self' ? `自己做 ${p.food.crafts} 次` : '交易行买'}）`])
-    if (sum.length) XLSX.utils.sheet_add_aoa(recipeSheet, sum.map(([k, v], i) => [xCell({ v: k, bold: true, fill: 'E8EEF9' }, {}), xCell({ v, bold: i === 3, align: 'right', fmt: '0.#' }, {})]) as never, { origin: { r: recipes.length + 2, c: 0 } })
-    XLSX.utils.book_append_sheet(wb, recipeSheet, '已选配方')
+    if (sum.length) {
+      XLSX.utils.sheet_add_aoa(ws, sum.map(([k, v], i) => [xCell({ v: k, bold: true, fill: 'E8EEF9' }, {}), xCell({ v, bold: i === 3, align: typeof v === 'number' ? 'right' : 'left', fmt: 'General' }, {})]) as never, { origin: { r: row, c: 0 } })
+      row += sum.length + 1
+    }
+
+    // 各张小表：先每个配方，再每种中间件 / 精力药
+    for (const [i, b] of blocks.entries()) {
+      if (i === 0) {
+        merges.push({ s: { r: row, c: 0 }, e: { r: row, c: COLS - 1 } })
+        XLSX.utils.sheet_add_aoa(ws, [[fillCell('配方材料明细'), ...Array.from({ length: COLS - 1 }, () => fillCell(''))]] as never, { origin: { r: row, c: 0 } })
+        row += 2
+      }
+      const pad = (cells: unknown[]) => [...cells, ...Array.from({ length: COLS - cells.length }, () => xCell('', {}))]
+      const aoa: unknown[][] = [
+        [fillCell(b.title), ...Array.from({ length: COLS - 1 }, () => fillCell(''))],
+        pad(['名称', '数量 / 次数', '类别', '说明'].map((h) => xCell(h, { header: true }))),
+        // 名称、数量、类别、说明：说明合并到最右，长文字不会被截断
+        ...b.rows.map((r, j) => pad([r[1], r[2], r[0], r[3]].map((c) => xCell(c, { zebra: j % 2 === 1 }))))
+      ]
+      merges.push({ s: { r: row, c: 0 }, e: { r: row, c: COLS - 1 } })
+      merges.push({ s: { r: row + 1, c: 3 }, e: { r: row + 1, c: COLS - 1 } })
+      b.rows.forEach((_, j) => merges.push({ s: { r: row + 2 + j, c: 3 }, e: { r: row + 2 + j, c: COLS - 1 } }))
+      XLSX.utils.sheet_add_aoa(ws, aoa as never, { origin: { r: row, c: 0 } })
+      row += aoa.length + 1
+    }
+    ws['!merges'] = merges
+    XLSX.utils.book_append_sheet(wb, ws, '材料清单')
 
     const base64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' }) as string
     const date = new Date().toISOString().slice(0, 10)
@@ -1821,6 +1885,25 @@ async function exportPlan() {
   justify-content: space-between;
 }
 /* 自备数量列收到刚好放下输入框的宽度，多余的宽度留给别的列 */
+.cp-all-own {
+  margin-left: 6px;
+  font-weight: normal;
+}
+.cp-plan-ignored td {
+  opacity: 0.6;
+}
+.cp-plan-ignored td:last-child {
+  opacity: 1;
+}
+.cp-plan-acts {
+  white-space: nowrap;
+}
+.cp-own-short {
+  color: #d03050;
+  font-size: 12px;
+  line-height: 1.2;
+  margin-top: 2px;
+}
 .cp-plan-own-col {
   width: 1%;
   white-space: nowrap;

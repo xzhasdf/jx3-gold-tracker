@@ -12,7 +12,7 @@
 //     它用到的中间件的精力受「忽略中间件精力」控制（中间件按整数次数算）
 //   - 自备材料不计成本：基础材料可选「自备」并填数量，小计 = (合计 − 自备) × 单价；NPC 有售的材料不支持自备
 //   - 精力药和选定配方共用同一个中间件时，两边各自取整、各占一行，合计是上界
-import { MID_IDS, PRODUCER, RECIPE_MAP, craftTimes, expectedCount, itemName, priceOf, type CraftRecipe, type PriceContext, type UnitPrice, type VigorFood } from './craftCalc'
+import { ITEMS, MID_IDS, PRODUCER, RECIPE_MAP, craftTimes, expectedCount, itemName, priceOf, type CraftRecipe, type PriceContext, type UnitPrice, type VigorFood } from './craftCalc'
 
 export type PlanYieldMode = 'min' | 'expected'
 export type PlanFoodSource = 'self' | 'buy'
@@ -281,9 +281,11 @@ export function planMaterials(entries: PlanEntry[], opt: PlanOptions, ctx: Price
     const subtotal = buy === 0 ? 0 : unit.price === null ? null : unit.price * buy
     return { id, name: itemName(id), total, ...v, unit, isOwn, owned, subtotal }
   })
-  // 按「总价」（不扣自备）排序：改自备数量不会让行跳来跳去
+  // 排序用「总价」（不扣自备）：改自备数量不会让行跳来跳去
   const gross = (m: PlanMaterial) => (m.unit.price === null ? Infinity : m.unit.price * m.total)
-  materials.sort((a, b) => gross(b) - gross(a) || a.name.localeCompare(b.name, 'zh'))
+  // 品质高的在前（紫 > 蓝 > 绿 > 无色），同品质再按总价从高到低
+  const quality = (m: PlanMaterial) => ITEMS[m.id]?.q ?? 0
+  materials.sort((a, b) => quality(b) - quality(a) || gross(b) - gross(a) || a.name.localeCompare(b.name, 'zh'))
 
   const missing = materials.filter((m) => m.subtotal === null).map((m) => m.name)
   if (food?.source === 'buy' && food.cost === null) missing.push(food.food.name)

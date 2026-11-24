@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.4.1</span>
+          <span class="header-version">v1.4.2</span>
         </div>
         <div class="header-actions">
           <button
@@ -172,6 +172,17 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.4.2',
+    items: [
+      '技艺收益：材料清单里每个配方可「忽略 / 取消忽略」，忽略后不参与计算，和列表里的勾选无关',
+      '技艺收益：基础材料按品质排序（紫、蓝、绿、无色），中间件材料名按品质上色',
+      '技艺收益：基础材料自备不足时，输入框下显示红色「差 N 件」',
+      '技艺收益：基础材料「取价」表头新增「全自备 / 清空自备」',
+      '技艺收益：导出 Excel 合并为一个工作表，新增差额列和每个配方、中间件、精力药的材料消耗明细',
+      '技艺收益：导出 Excel 的金额按 1 金 = 10000 铜保留最多 4 位小数（1 金 50 银 30 铜 = 1.503）',
+    ]
+  },
   {
     version: 'v1.4.1',
     items: [
