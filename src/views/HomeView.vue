@@ -5,7 +5,7 @@
         <div class="header-brand">
           <img src="../assets/logo.png" alt="logo" class="header-logo" />
           <n-thing title="剑网3副本收支记录" />
-          <span class="header-version">v1.3.5</span>
+          <span class="header-version">v1.4.0</span>
         </div>
         <div class="header-actions">
           <button
@@ -172,6 +172,13 @@ const settingOptions = computed<DropdownOption[]>(() => [
 ])
 
 const CHANGELOG = [
+  {
+    version: 'v1.4.0',
+    items: [
+      '技艺收益：新增材料清单（基础材料合计、精力药折算、自备材料、导出 Excel）',
+      '团牌：新增备注（收支表单、团牌管理、明细悬停提示）',
+    ]
+  },
   {
     version: 'v1.3.5',
     items: [
