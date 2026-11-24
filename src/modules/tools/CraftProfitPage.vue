@@ -666,9 +666,9 @@
             </table>
 
             <template v-if="plan.crafts.length">
-              <div class="cp-plan-title">中间件 / 精力药<n-tooltip :delay="100" placement="bottom"><template #trigger><span class="cp-help">?</span></template><div>单独列出，它们的材料已计入上面的基础材料</div><div>制作次数 = 需要个数 ÷ 单次产出，向上取整</div><div>精力药个数只按配方的精力需求折算，做药本身的精力计入总精力消耗，但不会让药越补越多</div></n-tooltip></div>
+              <div class="cp-plan-title">中间件 / 精力药<n-tooltip :delay="100" placement="bottom"><template #trigger><span class="cp-help">?</span></template><div>单独列出，它们的材料已计入上面的基础材料</div><div>制作次数 = (需要个数 − 自备个数) ÷ 单次产出，向上取整</div><div>自备的部分不用做，对应的材料和精力都不算</div><div>精力药个数只按配方的精力需求折算，做药本身的精力计入总精力消耗，但不会让药越补越多</div></n-tooltip></div>
               <table class="cp-table cp-plan-table">
-                <thead><tr><th>名称</th><th class="cp-num">需要</th><th class="cp-num">制作次数</th><th class="cp-num">产出</th><th v-if="planFoodOn" class="cp-num">精力</th><th>材料</th></tr></thead>
+                <thead><tr><th>名称</th><th class="cp-num">需要</th><th class="cp-num">自备</th><th class="cp-num">制作次数</th><th class="cp-num">产出</th><th v-if="planFoodOn" class="cp-num">精力</th><th>材料</th></tr></thead>
                 <tbody>
                   <tr v-for="c in plan.crafts" :key="c.key">
                     <td>
@@ -676,6 +676,9 @@
                       {{ c.name }}
                     </td>
                     <td class="cp-num">{{ c.need }}</td>
+                    <td class="cp-num">
+                      <n-input-number :value="c.owned || null" placeholder="0" size="tiny" :min="0" :max="c.need" :precision="0" :show-button="false" style="width: 64px" @update:value="(v: number | null) => setCraftOwned(c.key, v ?? 0)" />
+                    </td>
                     <td class="cp-num cp-strong">{{ c.crafts }}</td>
                     <td class="cp-num">{{ round1(c.produced) }}</td>
                     <td v-if="planFoodOn" class="cp-num" :class="{ 'cp-muted': c.kind === 'mid' && planIgnoreMid }">{{ round1(c.vigor) }}</td>
@@ -1102,6 +1105,8 @@ const planQty = ref<Record<string, number>>({})
 const planTimes = ref<Record<string, number>>({})
 /** 自备的基础材料：itemId → 自备数量；有记录 = 选了自备，这部分不计成本 */
 const planOwned = ref<Record<string, number>>({})
+/** 自备的中间件 / 精力药：制作行 key → 自备个数，这部分不用做 */
+const planOwnedCraft = ref<Record<string, number>>({})
 /** 基础材料表里没有数据的来源列整列隐藏（比如没用到中间件就不显示「中间件用」） */
 const showCol = computed(() => ({
   direct: plan.value.materials.some((m) => m.direct),
@@ -1129,6 +1134,7 @@ function resetPlanTemp() {
   planQty.value = {}
   planQtyYield.value = {}
   planOwned.value = {}
+  planOwnedCraft.value = {}
   noVigorIds.value = new Set()
   planFoodOn.value = false
   planFoodKey.value = VIGOR_FOODS[0].key
@@ -1148,6 +1154,9 @@ function setMatOwn(id: string, own: boolean, total: number) {
     const { [id]: _drop, ...rest } = planOwned.value
     planOwned.value = rest
   }
+}
+function setCraftOwned(key: string, qty: number) {
+  planOwnedCraft.value = { ...planOwnedCraft.value, [key]: Math.max(0, Math.floor(qty)) }
 }
 function setMatOwned(id: string, qty: number) {
   planOwned.value = { ...planOwned.value, [id]: Math.max(0, Math.floor(qty)) }
@@ -1191,7 +1200,8 @@ const plan = computed(() =>
       ignoreMidVigor: planIgnoreMid.value,
       yieldMode: planYieldMode.value,
       foodYieldMode: planFoodYield.value,
-      owned: planOwned.value
+      owned: planOwned.value,
+      ownedCraft: planOwnedCraft.value
     },
     ctx.value
   )
@@ -1278,6 +1288,7 @@ async function exportPlan() {
       c.kind === 'food' ? { v: '精力药', fill: 'FFF4E5', color: 'B54708', align: 'center' } : { v: '中间件', fill: 'E8F0FE', color: '1D4ED8', align: 'center' },
       c.name,
       c.need,
+      c.owned || '',
       { v: c.crafts, bold: true },
       round1(c.produced),
       round1(c.vigor),
@@ -1304,7 +1315,7 @@ async function exportPlan() {
     // 没有自备材料时不输出「自备数量」列
     const hasOwn = p.materials.some((m) => m.isOwn)
     const matsT = dropCols(['材料', '合计', '配方直接用', '中间件用', '精力药用', '取价', '自备数量', '单价（金）', '小计（金）'], mats, [22, 10, 12, 10, 10, 10, 10, 14, 16], hasOwn ? [] : [6])
-    const craftsT = dropCols(['类型', '名称', '需要', '制作次数', '产出', '精力', '材料'], crafts, [10, 22, 8, 10, 8, 8, 60], planFoodOn.value ? [] : [5])
+    const craftsT = dropCols(['类型', '名称', '需要', '自备', '制作次数', '产出', '精力', '材料'], crafts, [10, 22, 8, 8, 10, 8, 8, 60], planFoodOn.value ? [] : [6])
     const recipesT = dropCols(['配方', '技艺', '制作方式', '数量 / 次数', '制作次数', '精力', '计入精力'], recipes, [22, 8, 18, 12, 10, 8, 10], planFoodOn.value ? [] : [5, 6])
 
     const wb = XLSX.utils.book_new()

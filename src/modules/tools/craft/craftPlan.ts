@@ -28,6 +28,8 @@ export interface PlanOptions {
   yieldMode: PlanYieldMode
   /** 自备材料：itemId → 自备数量；有记录 = 选了自备，这部分不计成本 */
   owned: Record<string, number>
+  /** 自备的中间件 / 精力药：制作行 key → 自备个数；这部分不用做（材料、精力都不算） */
+  ownedCraft?: Record<string, number>
 }
 
 export interface PlanEntry {
@@ -68,6 +70,8 @@ export interface PlanCraftLine {
   kind: 'mid' | 'food'
   recipe: CraftRecipe
   need: number
+  /** 自备个数（已截到 0~需要）；实际要做的个数 = need − owned */
+  owned: number
   crafts: number
   /** crafts × 单次产出（按所选口径） */
   produced: number
@@ -153,7 +157,7 @@ function craftsFor(need: number, r: CraftRecipe, mode: PlanYieldMode, ov: YieldO
 }
 
 /** 把一份需求展开成基础材料 + 中间件制作行。固定点迭代，防中间件套中间件 */
-function expand(need: Map<string, number>, direct: Via, mode: PlanYieldMode, keyPrefix: string, ov: YieldOverride): { base: BaseMap; lines: PlanCraftLine[] } {
+function expand(need: Map<string, number>, direct: Via, mode: PlanYieldMode, keyPrefix: string, ov: YieldOverride, ownedCraft: Record<string, number>): { base: BaseMap; lines: PlanCraftLine[] } {
   let midNeed = new Map<string, number>()
   let base: BaseMap = new Map()
   let lines: PlanCraftLine[] = []
@@ -173,7 +177,8 @@ function expand(need: Map<string, number>, direct: Via, mode: PlanYieldMode, key
     for (const [id, q] of need) sink(id, q, direct)
     for (const [id, q] of midNeed) {
       const r = PRODUCER.get(id)!
-      const crafts = craftsFor(q, r, mode, ov)
+      const owned = Math.min(q, Math.max(0, Math.floor(ownedCraft[`${keyPrefix}${id}`] ?? 0)))
+      const crafts = q - owned > 0 ? craftsFor(q - owned, r, mode, ov) : 0
       lines.push({
         key: `${keyPrefix}${id}`,
         id,
@@ -181,6 +186,7 @@ function expand(need: Map<string, number>, direct: Via, mode: PlanYieldMode, key
         kind: 'mid',
         recipe: r,
         need: q,
+        owned,
         crafts,
         produced: crafts * perCraft(r, mode, ov),
         vigor: crafts * r.vigor,
@@ -214,7 +220,7 @@ export function planMaterials(entries: PlanEntry[], opt: PlanOptions, ctx: Price
 
   const need = new Map<string, number>()
   for (const r of recipes) for (const [id, n] of r.recipe.mats) need.set(id, (need.get(id) ?? 0) + n * r.times)
-  const main = expand(need, 'direct', opt.yieldMode, 'mid:', ov)
+  const main = expand(need, 'direct', opt.yieldMode, 'mid:', ov, opt.ownedCraft ?? {})
   const vigorMidAll = main.lines.reduce((s, l) => s + l.vigor, 0)
   const vigorMid = opt.ignoreMidVigor ? 0 : vigorMidAll
   const vigorTotal = vigorBody + vigorMid
@@ -238,10 +244,11 @@ export function planMaterials(entries: PlanEntry[], opt: PlanOptions, ctx: Price
     const count = Math.ceil(vigorTotal / opt.food.vigor - 1e-9)
     const fr = PRODUCER.get(opt.food.id)
     if (opt.foodSource === 'self' && fr) {
-      const n = craftsFor(count, fr, opt.foodYieldMode, ov)
+      const foodOwned = Math.min(count, Math.max(0, Math.floor(opt.ownedCraft?.food ?? 0)))
+      const n = count - foodOwned > 0 ? craftsFor(count - foodOwned, fr, opt.foodYieldMode, ov) : 0
       const foodNeed = new Map<string, number>()
       for (const [m, q] of fr.mats) foodNeed.set(m, q * n)
-      const sub = expand(foodNeed, 'viaFood', opt.yieldMode, 'foodmid:', ov)
+      const sub = expand(foodNeed, 'viaFood', opt.yieldMode, 'foodmid:', ov, opt.ownedCraft ?? {})
       merge(sub.base)
       vigorFood = n * fr.vigor + (opt.ignoreMidVigor ? 0 : sub.lines.reduce((s, l) => s + l.vigor, 0))
       crafts.push({
@@ -251,6 +258,7 @@ export function planMaterials(entries: PlanEntry[], opt: PlanOptions, ctx: Price
         kind: 'food',
         recipe: fr,
         need: count,
+        owned: foodOwned,
         crafts: n,
         produced: n * perCraft(fr, opt.foodYieldMode, ov),
         vigor: n * fr.vigor,
