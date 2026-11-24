@@ -180,7 +180,7 @@ export interface VigorFoodLine {
 }
 
 /** 主产物 → 配方（目前只用来找补精力食物的配方） */
-const PRODUCER = new Map<string, CraftRecipe>()
+export const PRODUCER = new Map<string, CraftRecipe>()
 for (const r of RECIPES) if (r.outs.length && !PRODUCER.has(r.outs[0][0])) PRODUCER.set(r.outs[0][0], r)
 
 /** 自制食物每个的成本 = 一次制作的材料费 / 一次期望产出个数（自制的可能是以前做好的，不再扣本次精力） */

@@ -760,6 +760,23 @@ app.whenReady().then(() => {
       return { ok: false, message: error instanceof Error ? error.message : '写入失败' }
     }
   })
+  // 把渲染进程生成的文件（base64）存到用户选的位置，目前给技艺材料清单导出 Excel 用
+  ipcMain.handle('app:saveFile', async (event, defaultName, base64, filterName, extension) => {
+    const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
+    win?.focus()
+    try {
+      const result = await dialog.showSaveDialog(win ?? undefined, {
+        title: '导出',
+        defaultPath: String(defaultName || `export.${extension}`),
+        filters: [{ name: String(filterName || '文件'), extensions: [String(extension || '*')] }]
+      })
+      if (result.canceled || !result.filePath) return { ok: false }
+      fs.writeFileSync(result.filePath, Buffer.from(String(base64), 'base64'))
+      return { ok: true, filePath: result.filePath }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : '写入失败' }
+    }
+  })
   ipcMain.handle('app:importData', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
     win?.focus()

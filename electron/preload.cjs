@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   writeStateSync: (state) => ipcRenderer.sendSync('app:writeStateSync', state),
   exportData: (state) => ipcRenderer.invoke('app:exportData', state),
   importData: () => ipcRenderer.invoke('app:importData'),
+  saveFile: (defaultName, base64, filterName, extension) => ipcRenderer.invoke('app:saveFile', defaultName, base64, filterName, extension),
   getGoldPrice: (server) => ipcRenderer.invoke('app:getGoldPrice', server),
   getGoldGateways: () => ipcRenderer.invoke('app:getGoldGateways'),
   getGoldServer: () => ipcRenderer.invoke('app:getGoldServer'),

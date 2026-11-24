@@ -635,6 +635,16 @@ function setGroupBrandBlacklisted(id: string, blacklisted: boolean): { ok: boole
   return { ok: true }
 }
 
+function setGroupBrandRemark(id: string, remark: string): { ok: boolean; message?: string } {
+  const target = groupBrands.value.find((b) => b.id === id)
+  if (!target) return { ok: false, message: '团牌不存在' }
+  const text = remark.trim()
+  if (text) target.remark = text
+  else delete target.remark
+  persist()
+  return { ok: true }
+}
+
 function deleteGroupBrand(id: string): { ok: boolean; message?: string } {
   const target = groupBrands.value.find((b) => b.id === id)
   if (!target) return { ok: false, message: '团牌不存在' }
@@ -643,15 +653,21 @@ function deleteGroupBrand(id: string): { ok: boolean; message?: string } {
   return { ok: true }
 }
 
-// 录入/编辑收支记录时同步团牌库：新团牌自动创建，拉黑状态以记录表单为准
-function syncGroupBrandFromRecord(groupBrand?: string, blacklisted?: boolean) {
+// 录入/编辑收支记录时同步团牌库：新团牌自动创建，拉黑状态以记录表单为准。
+// 团牌备注：brandRemark 为 undefined 表示表单没提供（没勾拉黑），不动已有备注；传了字符串就以它为准，空串 = 清空
+function syncGroupBrandFromRecord(groupBrand?: string, blacklisted?: boolean, brandRemark?: string) {
   const name = groupBrand?.trim()
   if (!name) return
+  const remark = brandRemark === undefined ? undefined : brandRemark.trim()
   const existing = groupBrandMap.value.get(name)
   if (existing) {
     existing.blacklisted = Boolean(blacklisted)
+    if (remark !== undefined) {
+      if (remark) existing.remark = remark
+      else delete existing.remark
+    }
   } else {
-    groupBrands.value.push({ id: makeId('brand'), name, blacklisted: Boolean(blacklisted) })
+    groupBrands.value.push({ id: makeId('brand'), name, blacklisted: Boolean(blacklisted), ...(remark ? { remark } : {}) })
   }
 }
 
@@ -665,6 +681,8 @@ function addRecord(payload: {
   leaderId?: string
   remark?: string
   blacklisted?: boolean
+  /** 团牌备注，仅勾选拉黑时由表单传入；undefined = 不改 */
+  brandRemark?: string
   blackPerson?: string
   specialDropIds?: string[]
 }): string {
@@ -684,14 +702,14 @@ function addRecord(payload: {
     blackPerson: normalizePersonName(payload.blackPerson) || undefined,
     specialDropIds: payload.specialDropIds && payload.specialDropIds.length > 0 ? payload.specialDropIds.slice() : undefined
   })
-  syncGroupBrandFromRecord(payload.groupBrand, payload.blacklisted)
+  syncGroupBrandFromRecord(payload.groupBrand, payload.blacklisted, payload.brandRemark)
   persist()
   return id
 }
 
 function updateRecord(
   id: string,
-  payload: { date?: string; roleId?: string; dungeonId?: string; income: number; expense: number; groupBrand?: string; leaderId?: string; remark?: string; blacklisted?: boolean; blackPerson?: string; specialDropIds?: string[] }
+  payload: { date?: string; roleId?: string; dungeonId?: string; income: number; expense: number; groupBrand?: string; leaderId?: string; remark?: string; blacklisted?: boolean; brandRemark?: string; blackPerson?: string; specialDropIds?: string[] }
 ) {
   const target = records.value.find((r) => r.id === id)
   if (!target) return
@@ -706,7 +724,7 @@ function updateRecord(
   target.blacklisted = Boolean(payload.blacklisted)
   target.blackPerson = normalizePersonName(payload.blackPerson) || undefined
   target.specialDropIds = payload.specialDropIds && payload.specialDropIds.length > 0 ? payload.specialDropIds.slice() : undefined
-  syncGroupBrandFromRecord(payload.groupBrand, payload.blacklisted)
+  syncGroupBrandFromRecord(payload.groupBrand, payload.blacklisted, payload.brandRemark)
   persist()
 }
 
@@ -1179,6 +1197,7 @@ function queryRecords(filters: { roleId: string | null; roleIds?: string[]; dung
         ...r,
         statDate: recordStatDate(r),
         blacklisted: brandEntity ? Boolean(brandEntity.blacklisted) : Boolean(r.blacklisted),
+        brandRemark: brandEntity?.remark,
         leaderId: normalizePersonName(r.leaderId) || undefined,
         blackPerson: normalizePersonName(r.blackPerson) || undefined,
         roleText: role ? `${role.id}（${role.server}/${role.school}）` : '已删除角色',
@@ -1286,6 +1305,7 @@ export function useTracker() {
     groupBrands,
     addGroupBrand,
     setGroupBrandBlacklisted,
+    setGroupBrandRemark,
     deleteGroupBrand,
     longUse,
     addLongUseItem,

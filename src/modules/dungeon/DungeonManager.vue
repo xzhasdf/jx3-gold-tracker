@@ -136,7 +136,7 @@
     </template>
   </n-modal>
 
-  <n-modal v-model:show="showRoster" preset="card" title="团牌管理" style="max-width: 760px">
+  <n-modal v-model:show="showRoster" preset="card" title="团牌管理" style="max-width: 900px">
     <div class="brand-toolbar">
       <n-space :size="8" :wrap-item="false" align="center">
         <n-input v-model:value="brandForm.name" placeholder="输入团牌名称" style="width: 180px" @keyup.enter="handleAddBrand" />
@@ -149,6 +149,16 @@
     </div>
     <div class="brand-tip">收支明细中填写新团牌时会自动创建；团牌拉黑后，录入该团牌的记录将自动标记拉黑</div>
     <n-data-table :columns="rosterColumns" :data="filteredRosterRows" :pagination="false" :max-height="420" />
+  </n-modal>
+
+  <n-modal v-model:show="remarkEdit.show" preset="card" :title="`团牌备注 · ${remarkEdit.name}`" style="max-width: 460px">
+    <n-input v-model:value="remarkEdit.text" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" maxlength="200" show-count placeholder="团牌备注（如拉黑原因），留空即清除" />
+    <template #footer>
+      <n-space justify="end">
+        <n-button @click="remarkEdit.show = false">取消</n-button>
+        <n-button type="primary" @click="saveBrandRemark">保存</n-button>
+      </n-space>
+    </template>
   </n-modal>
 </template>
 
@@ -172,6 +182,7 @@ interface RosterRow {
   id: string
   name: string
   blacklisted: boolean
+  remark: string
   leaders: string[]
   recordCount: number
 }
@@ -419,6 +430,7 @@ const rosterRows = computed<RosterRow[]>(() => {
       id: brand.id,
       name: brand.name,
       blacklisted: Boolean(brand.blacklisted),
+      remark: brand.remark ?? '',
       leaders: tracker.getLeadersForBrand(brand.name),
       recordCount: countMap.get(brand.name) ?? 0
     }))
@@ -453,6 +465,21 @@ watch(showRoster, (value) => {
   brandFilter.keyword = ''
   brandFilter.status = 'all'
 })
+
+const remarkEdit = reactive({ show: false, id: '', name: '', text: '' })
+
+function openBrandRemark(row: RosterRow) {
+  remarkEdit.id = row.id
+  remarkEdit.name = row.name
+  remarkEdit.text = row.remark
+  remarkEdit.show = true
+}
+
+function saveBrandRemark() {
+  const result = tracker.setGroupBrandRemark(remarkEdit.id, remarkEdit.text)
+  if (!result.ok) return warn(result.message)
+  remarkEdit.show = false
+}
 
 function handleAddBrand() {
   const result = tracker.addGroupBrand(brandForm.name)
@@ -514,10 +541,18 @@ const rosterColumns: DataTableColumns<RosterRow> = [
     render: (row) => (row.blacklisted ? h(NTag, { type: 'error', size: 'small' }, { default: () => '黑名单' }) : '-')
   },
   {
+    title: '备注',
+    key: 'remark',
+    width: 170,
+    ellipsis: { tooltip: true },
+    render: (row) => (row.remark ? row.remark : h('span', { style: 'color:#c0c4cc;' }, '-'))
+  },
+  {
     title: '操作',
     key: 'actions',
-    width: 170,
+    width: 230,
     render: (row) => h('div', { class: 'action-group' }, [
+      h('button', { class: 'mini-btn', onClick: () => openBrandRemark(row) }, '备注'),
       h('button', {
         class: row.blacklisted ? 'mini-btn' : 'mini-btn warning',
         onClick: () => tracker.setGroupBrandBlacklisted(row.id, !row.blacklisted)

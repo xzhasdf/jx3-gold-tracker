@@ -75,6 +75,7 @@ interface Window {
     readStateSync: () => unknown
     writeStateSync: (state: unknown) => { ok: boolean; message?: string }
     exportData: (state: unknown) => Promise<{ ok: boolean; filePath?: string; message?: string }>
+    saveFile: (defaultName: string, base64: string, filterName: string, extension: string) => Promise<{ ok: boolean; filePath?: string; message?: string }>
     importData: () => Promise<{ ok: boolean; data?: unknown; message?: string }>
     getGoldPrice: (server?: GoldServer) => Promise<{ ok: boolean; data?: GoldPrice; message?: string }>
     getGoldGateways: () => Promise<{ ok: boolean; data?: GoldZone[]; message?: string }>

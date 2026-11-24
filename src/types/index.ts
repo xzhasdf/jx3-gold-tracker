@@ -23,6 +23,8 @@ export interface GroupBrand {
   id: string
   name: string
   blacklisted?: boolean
+  /** 团牌备注（如拉黑原因）；在收支表单勾选拉黑时填写，团牌管理里可查看 / 修改 */
+  remark?: string
 }
 
 export interface RecordItem {

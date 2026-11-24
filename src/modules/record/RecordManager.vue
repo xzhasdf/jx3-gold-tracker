@@ -206,6 +206,16 @@
               />
               <n-checkbox v-if="addForm.groupBrand.trim()" v-model:checked="addForm.blacklisted">拉黑</n-checkbox>
             </n-space>
+            <n-input
+              v-if="addForm.blacklisted && addForm.groupBrand.trim()"
+              v-model:value="addForm.brandRemark"
+              type="textarea"
+              :autosize="{ minRows: 1, maxRows: 3 }"
+              maxlength="200"
+              show-count
+              placeholder="团牌备注（如拉黑原因，可选）"
+              :style="fieldStyle"
+            />
             <ExpandableTagRow
               v-if="frequentBrands.length > 0"
               label="常用团牌"
@@ -302,6 +312,16 @@
               />
               <n-checkbox v-if="editForm.groupBrand.trim()" v-model:checked="editForm.blacklisted">拉黑</n-checkbox>
             </n-space>
+            <n-input
+              v-if="editForm.blacklisted && editForm.groupBrand.trim()"
+              v-model:value="editForm.brandRemark"
+              type="textarea"
+              :autosize="{ minRows: 1, maxRows: 3 }"
+              maxlength="200"
+              show-count
+              placeholder="团牌备注（如拉黑原因，可选）"
+              :style="fieldStyle"
+            />
             <ExpandableTagRow
               v-if="frequentBrands.length > 0"
               label="常用团牌"
@@ -375,7 +395,7 @@
 
 <script setup lang="ts">
 import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { NSlider, NTag, type CascaderOption, type DataTableColumns, type DataTableSortState, useDialog } from 'naive-ui'
+import { NSlider, NTag, NTooltip, type CascaderOption, type DataTableColumns, type DataTableSortState, useDialog } from 'naive-ui'
 import { useTracker } from '../../composables/useTracker'
 import { useOcrState } from '../../composables/useOcrState'
 import { FIXED_DUNGEON_OPTIONS } from '../../constants/game'
@@ -460,6 +480,7 @@ const addForm = reactive({
   leaderId: '',
   remark: '',
   blacklisted: false,
+  brandRemark: '',
   blackPerson: '',
   hasSpecialDrop: false,
   specialDropIds: [] as string[],
@@ -477,6 +498,7 @@ const editForm = reactive({
   leaderId: '',
   remark: '',
   blacklisted: false,
+  brandRemark: '',
   blackPerson: '',
   hasSpecialDrop: false,
   specialDropIds: [] as string[],
@@ -772,6 +794,13 @@ const groupBrandSelectOptions = computed(() =>
     .map((b) => ({ label: b.name, value: b.name, blacklisted: Boolean(b.blacklisted) }))
 )
 
+/** 明细里的团牌标签：拉黑团牌有备注时，鼠标移上去显示备注 */
+function renderBrandTag(brand: string, remark?: string) {
+  const tag = h(NTag, { size: 'small' }, { default: () => brand })
+  if (!remark) return tag
+  return h(NTooltip, { placement: 'top', style: 'max-width: 280px; white-space: pre-wrap;' }, { trigger: () => tag, default: () => remark })
+}
+
 function renderBrandOption(option: { label?: string | number; blacklisted?: boolean }) {
   const label = String(option.label ?? '')
   if (!option.blacklisted) return label
@@ -796,6 +825,11 @@ const editGroupBrandValue = computed<string | null>({
   set: (v) => { editForm.groupBrand = v ?? '' }
 })
 
+/** 团牌库里该团牌已有的备注，没有返回空串 */
+function brandRemarkOf(brand: string): string {
+  return tracker.groupBrands.value.find((b) => b.name === brand)?.remark ?? ''
+}
+
 const showAddBlacklistedHint = computed(() => {
   const brand = addForm.groupBrand.trim()
   return Boolean(brand) && blacklistedBrandSet.value.has(brand)
@@ -810,6 +844,8 @@ watch(
   () => addForm.groupBrand,
   (value) => {
     const brand = value.trim()
+    // 换团牌就回填该团牌已有的备注（新团牌为空）
+    addForm.brandRemark = brandRemarkOf(brand)
     if (!brand) { addForm.blacklisted = false; return }
     if (blacklistedBrandSet.value.has(brand)) addForm.blacklisted = true
   }
@@ -831,6 +867,7 @@ watch(showAdd, (value) => {
   addForm.leaderId = ''
   addForm.remark = ''
   addForm.blacklisted = false
+  addForm.brandRemark = ''
   addForm.blackPerson = ''
   tempProxyRatio.value = null
 })
@@ -849,6 +886,7 @@ watch(
       addForm.groupBrand = ''
       addForm.leaderId = ''
       addForm.blacklisted = false
+      addForm.brandRemark = ''
       addForm.blackPerson = ''
     }
   }
@@ -861,6 +899,7 @@ watch(
       editForm.groupBrand = ''
       editForm.leaderId = ''
       editForm.blacklisted = false
+      editForm.brandRemark = ''
       editForm.blackPerson = ''
     }
   }
@@ -870,6 +909,7 @@ watch(
   () => editForm.groupBrand,
   (value) => {
     const brand = value.trim()
+    editForm.brandRemark = brandRemarkOf(brand)
     if (!brand) { editForm.blacklisted = false; return }
     if (blacklistedBrandSet.value.has(brand)) editForm.blacklisted = true
   }
@@ -939,6 +979,7 @@ function openAddModal() {
   addForm.leaderId = ''
   addForm.remark = ''
   addForm.blacklisted = false
+  addForm.brandRemark = ''
   tempRoleCandidateId.value = ''
   tempRoleCandidateServer.value = tracker.servers[0]
   tempRoleCandidateSchool.value = tracker.schools[0]
@@ -1026,6 +1067,8 @@ function createRecord() {
     leaderId: addForm.leaderId,
     remark: addForm.remark,
     blacklisted: addForm.blacklisted,
+    // 只有勾了拉黑才提交备注；没勾就不动团牌上已有的备注
+    brandRemark: addForm.blacklisted ? addForm.brandRemark : undefined,
     blackPerson: addForm.blackPerson,
     specialDropIds: dropIds
   })
@@ -1117,6 +1160,7 @@ function openEdit(row: (typeof rows.value)[number]) {
   editForm.leaderId = normalizePersonName(row.leaderId)
   editForm.remark = row.remark || ''
   editForm.blacklisted = Boolean(row.blacklisted)
+  editForm.brandRemark = row.brandRemark ?? ''
   editForm.blackPerson = normalizePersonName(row.blackPerson)
   // 已删除的掉落不再出现在编辑表单中（保存时也会一并清理掉失效引用）
   const allDropIds = new Set(tracker.specialDrops.value.map((d) => d.id))
@@ -1163,6 +1207,7 @@ function saveEdit() {
     leaderId: editForm.leaderId,
     remark: editForm.remark,
     blacklisted: editForm.blacklisted,
+    brandRemark: editForm.blacklisted ? editForm.brandRemark : undefined,
     blackPerson: editForm.blackPerson,
     specialDropIds: dropIds
   })
@@ -1320,7 +1365,7 @@ const allColumns = computed<DataTableColumns<(typeof rows.value)[number]>>(() =>
       return h('div', { style: 'display:flex;flex-direction:column;gap:3px;align-items:flex-start;' }, [
         row.groupBrand
           ? h('div', { style: 'display:flex;align-items:center;gap:4px;flex-wrap:nowrap;' }, [
-              h(NTag, { size: 'small' }, { default: () => row.groupBrand }),
+              renderBrandTag(row.groupBrand, row.blacklisted ? row.brandRemark : undefined),
               row.blacklisted ? h(NTag, { type: 'error', size: 'small' }, { default: () => '黑名单' }) : null
             ])
           : null,
